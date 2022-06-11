@@ -41,12 +41,12 @@ def _constrain_orthonormal_internal(M):
 
     # We'd like to enforce the rows of M to be orthonormal.
     # define P = M M^T.  If P is unit then M has orthonormal rows.
-    assert M.ndim == 2
+    assert M.ndim == 2, M.ndim
 
     num_rows = M.size(0)
     num_cols = M.size(1)
 
-    assert num_rows <= num_cols
+    assert num_rows <= num_cols, (num_rows, num_cols)
 
     # P = M * M^T
     P = torch.mm(M, M.t())
@@ -58,7 +58,7 @@ def _constrain_orthonormal_internal(M):
     scale = torch.sqrt(trace_P_P / trace_P)
 
     ratio = trace_P_P * num_rows / (trace_P * trace_P)
-    assert ratio > 0.99
+    assert ratio > 0.99, ratio
 
     update_speed = 0.125
 
@@ -114,7 +114,7 @@ class OrthonormalLinear(nn.Module):
         Returns:
           Return a tensor of shape (N, C, T)
         """
-        assert x.ndim == 3
+        assert x.ndim == 3, x.shape
         x = self.conv(x)
         return x
 
@@ -187,7 +187,7 @@ class FactorizedTdnnLayer(nn.Module):
             The scale used in skip connection.
         """
         super().__init__()
-        assert abs(bypass_scale) <= 1
+        assert abs(bypass_scale) <= 1, bypass_scale
         self.bypass_scale = bypass_scale
         self.s = subsampling_factor
 
@@ -219,7 +219,7 @@ class FactorizedTdnnLayer(nn.Module):
         Returns:
           Return a tensor of shape (N, C, T)
         """
-        assert x.ndim == 3
+        assert x.ndim == 3, x.shape
 
         # save it for skip connection
         input_x = x
@@ -289,7 +289,10 @@ class FactorizedTdnnModel(EncoderInterface):
             1 based.
         """
         super().__init__()
-        assert 1 <= subsampling_at_layer <= num_layers
+        assert 1 <= subsampling_at_layer <= num_layers, (
+            subsampling_at_layer,
+            num_layers,
+        )
         self.num_layers = num_layers
         self.subsampling_at_layer = subsampling_at_layer
 
