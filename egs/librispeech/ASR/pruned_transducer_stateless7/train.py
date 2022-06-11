@@ -57,7 +57,7 @@ import k2
 import sentencepiece as spm
 import torch
 import torch.multiprocessing as mp
-
+from torch.nn.utils import clip_grad_norm_
 import torch.nn as nn
 import torch.optim as optim
 from asr_datamodule import LibriSpeechAsrDataModule
@@ -680,6 +680,7 @@ def train_one_epoch(
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
             scaler.scale(loss).backward()
+            clip_grad_norm_(model.parameters(), 5.0, 2.0)
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
@@ -1017,6 +1018,7 @@ def scan_pessimistic_batches_for_oom(
                     is_training=True,
                 )
             loss.backward()
+            clip_grad_norm_(model.parameters(), 5.0, 2.0)
             optimizer.step()
             optimizer.zero_grad()
         except Exception as e:
