@@ -114,6 +114,20 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Bottleneck dim of the encoder.",
     )
 
+    parser.add_argument(
+        "--decoder-dim",
+        type=int,
+        default=1024,
+        help="Decoder dim.",
+    )
+
+    parser.add_argument(
+        "--joiner-dim",
+        type=int,
+        default=1024,
+        help="Joiner dim.",
+    )
+
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -299,6 +313,8 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    add_model_arguments(parser)
+
     return parser
 
 
@@ -358,8 +374,6 @@ def get_params() -> AttributeDict:
             "feature_dim": 80,
             "subsampling_factor": 3,
             # parameters for decoder
-            "decoder_dim": 1024,  # Output dim of the deocder
-            "joiner_dim": 1024,
             "env_info": get_env_info(),
             # for max_duration=300, 1 GPU
             #  "batches_per_epoch": 36400,  # 100h: 3800, full libri: 36400

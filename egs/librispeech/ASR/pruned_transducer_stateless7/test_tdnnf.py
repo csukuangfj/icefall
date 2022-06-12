@@ -91,8 +91,8 @@ def test_factorized_tdnnf_layer2():
 def test_factorized_tdnnf_model():
     model = FactorizedTdnnModel(
         feat_dim=80,
-        hidden_dim=2048,
-        bottleneck_dim=256,
+        hidden_dim=1024,
+        bottleneck_dim=128,
         num_layers=12,
         subsampling_at_layer=4,
     )

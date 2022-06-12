@@ -31,6 +31,14 @@ def test_model():
     params.vocab_size = 500
     params.blank_id = 0
     params.context_size = 2
+
+    params.num_encoder_layers = 12
+    params.subsampling_at_layer = 4
+    params.encoder_hidden_dim = 1024
+    params.encoder_bottleneck_dim = 128
+    params.decoder_dim = 512
+    params.joiner_dim = 512
+
     model = get_transducer_model(params)
     num_param = sum([p.numel() for p in model.parameters()])
     print(f"Number of model parameters: {num_param}")
