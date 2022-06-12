@@ -85,6 +85,36 @@ from icefall.env import get_env_info
 from icefall.utils import AttributeDict, MetricsTracker, setup_logger, str2bool
 
 
+def add_model_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--num-encoder-layers",
+        type=int,
+        default=12,
+        help="Number of conformer encoder layers..",
+    )
+
+    parser.add_argument(
+        "--subsampling-at-layer",
+        type=int,
+        default=4,
+        help="Subsampling at this encoder layer. Index is 1 based.",
+    )
+
+    parser.add_argument(
+        "--encoder-hidden-dim",
+        type=int,
+        default=2048,
+        help="Hidden dim of the encoder.",
+    )
+
+    parser.add_argument(
+        "--encoder-bottleneck-dim",
+        type=int,
+        default=256,
+        help="Bottleneck dim of the encoder.",
+    )
+
+
 def get_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -327,10 +357,6 @@ def get_params() -> AttributeDict:
             # parameters for FactorizedTdnn encoder
             "feature_dim": 80,
             "subsampling_factor": 3,
-            "num_encoder_layers": 12,
-            "subsampling_at_layer": 4,
-            "encoder_hidden_dim": 2048,
-            "encoder_bottlenect_dim": 256,
             # parameters for decoder
             "decoder_dim": 1024,  # Output dim of the deocder
             "joiner_dim": 1024,
@@ -349,7 +375,7 @@ def get_encoder_model(params: AttributeDict) -> nn.Module:
     encoder = FactorizedTdnnModel(
         feat_dim=params.feature_dim,
         hidden_dim=params.encoder_hidden_dim,
-        bottleneck_dim=params.encoder_bottlenect_dim,
+        bottleneck_dim=params.encoder_bottleneck_dim,
         num_layers=params.num_encoder_layers,
         subsampling_at_layer=params.subsampling_at_layer,
     )
