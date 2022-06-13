@@ -939,8 +939,6 @@ def run(rank, world_size, args):
     optimizer = optim.SGD(
         model.parameters(),
         params.initial_lr,
-        momentum=0.9,
-        nesterov=True,
     )
 
     if checkpoints and "optimizer" in checkpoints:
