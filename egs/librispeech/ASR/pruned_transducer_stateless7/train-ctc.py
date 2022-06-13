@@ -932,7 +932,7 @@ def run(rank, world_size, args):
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank])
 
-    optimizer = optim.SGD(
+    optimizer = optim.AdamW(
         model.parameters(),
         params.initial_lr,
     )
