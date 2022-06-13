@@ -53,7 +53,6 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
 
-import k2
 import sentencepiece as spm
 import torch
 import torch.multiprocessing as mp
@@ -64,7 +63,7 @@ from decoder import Decoder
 from joiner import Joiner
 from lhotse.cut import Cut
 from lhotse.dataset.sampling.base import CutSampler
-from lhotse.utils import fix_random_seed, encode_supervisions
+from lhotse.utils import fix_random_seed
 from model import Transducer
 from tdnnf import FactorizedTdnnModel
 from torch import Tensor
@@ -82,9 +81,12 @@ from icefall.checkpoint import (
 )
 from icefall.dist import cleanup_dist, setup_dist
 from icefall.env import get_env_info
-from icefall.graph_compiler import CtcTrainingGraphCompiler
-from icefall.lexicon import Lexicon
-from icefall.utils import AttributeDict, MetricsTracker, setup_logger, str2bool
+from icefall.utils import (
+    AttributeDict,
+    MetricsTracker,
+    setup_logger,
+    str2bool,
+)
 
 
 def add_model_arguments(parser: argparse.ArgumentParser):
@@ -198,13 +200,6 @@ def get_parser():
         type=str,
         default="data/lang_bpe_500/bpe.model",
         help="Path to the BPE model",
-    )
-
-    parser.add_argument(
-        "--lang-dir",
-        type=str,
-        default="data/lang_bpe_500",
-        help="The lang_dir tat contains lexicon.txt",
     )
 
     parser.add_argument(
@@ -409,14 +404,23 @@ def get_encoder_model(params: AttributeDict) -> nn.Module:
     return encoder
 
 
+class CtcModel(nn.Module):
+    def __init__(self, params):
+        super().__init__()
+        self.encoder = get_encoder_model(params)
+        self.output = nn.Sequential(
+            nn.LayerNorm(params.encoder_hidden_dim),
+            nn.Linear(params.encoder_hidden_dim, params.vocab_size),
+            nn.LogSoftmax(dim=-1),
+        )
+
+    def forward(self, x, x_lens) -> Tuple[torch.Tensor, torch.Tensor]:
+        encoder_out, encoder_out_lens = self.encoder(x, x_lens)
+        return self.output(encoder_out), encoder_out_lens
+
+
 def get_ctc_model(params: AttributeDict) -> nn.Module:
-    encoder = get_encoder_model(params)
-    return nn.Sequential(
-        encoder,
-        nn.LayerNorm(params.encoder_hidden_dim),
-        nn.Linear(params.encoder_hidden_dim, params.vocab_size),
-        nn.LogSoftmax(dim=-1),
-    )
+    return CtcModel(params)
 
 
 def get_decoder_model(params: AttributeDict) -> nn.Module:
@@ -573,7 +577,6 @@ def compute_loss(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
     sp: spm.SentencePieceProcessor,
-    graph_compiler: CtcTrainingGraphCompiler,
     batch: dict,
     is_training: bool,
 ) -> Tuple[Tensor, MetricsTracker]:
@@ -607,29 +610,34 @@ def compute_loss(
     feature_lens = supervisions["num_frames"].to(device)
 
     with torch.set_grad_enabled(is_training):
-        nnet_output = model(feature)  # (N, T, C)
+        nnet_output, nnet_output_lens = model(feature, feature_lens)
 
-    # NOTE: We need `encode_supervisions` to sort sequences with
-    # different duration in decreasing order, required by
-    # `k2.intersect_dense` called in `k2.ctc_loss`
-    supervisions = batch["supervisions"]
-    supervision_segments, texts = encode_supervisions(
-        supervisions, subsampling_factor=params.subsampling_factor
+    texts = batch["supervisions"]["text"]
+    ys = sp.encode(texts, out_type=int)
+
+    targets = []
+    target_lengths = []
+    for y in ys:
+        target_lengths.append(len(y))
+        targets.extend(y)
+    targets = torch.tensor(
+        targets,
+        device=device,
+        dtype=torch.int64,
     )
-    decoding_graph = graph_compiler.compile(texts)
 
-    dense_fsa_vec = k2.DenseFsaVec(
-        nnet_output,
-        supervision_segments,
-        allow_truncate=params.subsampling_factor - 1,
+    target_lengths = torch.tensor(
+        target_lengths,
+        device=device,
+        dtype=torch.int64,
     )
 
-    loss = k2.ctc_loss(
-        decoding_graph=decoding_graph,
-        dense_fsa_vec=dense_fsa_vec,
-        output_beam=params.beam_size,
-        reduction=params.reduction,
-        use_double_scores=params.use_double_scores,
+    loss = torch.nn.functional.ctc_loss(
+        log_probs=nnet_output.permute(1, 0, 2),  # (T, N, C)
+        targets=targets,
+        input_lengths=nnet_output_lens,
+        target_lengths=target_lengths,
+        reduction="sum",
     )
 
     assert loss.requires_grad == is_training
@@ -651,7 +659,6 @@ def compute_validation_loss(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
     sp: spm.SentencePieceProcessor,
-    graph_compiler: CtcTrainingGraphCompiler,
     valid_dl: torch.utils.data.DataLoader,
     world_size: int = 1,
 ) -> MetricsTracker:
@@ -665,7 +672,6 @@ def compute_validation_loss(
             params=params,
             model=model,
             sp=sp,
-            graph_compiler=graph_compiler,
             batch=batch,
             is_training=False,
         )
@@ -687,7 +693,6 @@ def train_one_epoch(
     params: AttributeDict,
     model: Union[nn.Module, DDP],
     optimizer: torch.optim.Optimizer,
-    graph_compiler: CtcTrainingGraphCompiler,
     sp: spm.SentencePieceProcessor,
     train_dl: torch.utils.data.DataLoader,
     valid_dl: torch.utils.data.DataLoader,
@@ -710,8 +715,6 @@ def train_one_epoch(
         The model for training.
       optimizer:
         The optimizer we are using.
-      graph_compiler:
-        It is used to convert transcripts to FSAs.
       train_dl:
         Dataloader for the training dataset.
       valid_dl:
@@ -749,7 +752,6 @@ def train_one_epoch(
                     model=model,
                     sp=sp,
                     batch=batch,
-                    graph_compiler=graph_compiler,
                     is_training=True,
                 )
             # summary stats
@@ -843,7 +845,6 @@ def train_one_epoch(
                 params=params,
                 model=model,
                 sp=sp,
-                graph_compiler=graph_compiler,
                 valid_dl=valid_dl,
                 world_size=world_size,
             )
@@ -898,9 +899,6 @@ def run(rank, world_size, args):
     if torch.cuda.is_available():
         device = torch.device("cuda", rank)
     logging.info(f"Device: {device}")
-
-    lexicon = Lexicon(params.lang_dir)
-    graph_compiler = CtcTrainingGraphCompiler(lexicon=lexicon, device=device)
 
     sp = spm.SentencePieceProcessor()
     sp.load(params.bpe_model)
@@ -1014,7 +1012,6 @@ def run(rank, world_size, args):
             model=model,
             model_avg=model_avg,
             optimizer=optimizer,
-            graph_compiler=graph_compiler,
             sp=sp,
             train_dl=train_dl,
             valid_dl=valid_dl,
