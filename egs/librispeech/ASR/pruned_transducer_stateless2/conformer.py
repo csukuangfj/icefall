@@ -35,6 +35,12 @@ from torch import Tensor, nn
 from icefall.utils import make_pad_mask, subsequent_chunk_mask
 
 
+class MakePadMask(nn.Module):
+    def forward(self, lengths: Tensor) -> Tensor:
+        """See doc for :func:`make_pad_mask`"""
+        return make_pad_mask(lengths)
+
+
 class Conformer(EncoderInterface):
     """
     Args:
@@ -86,6 +92,7 @@ class Conformer(EncoderInterface):
         short_chunk_size: int = 25,
         num_left_chunks: int = -1,
         causal: bool = False,
+        for_pnnx: bool = False,
     ) -> None:
         super(Conformer, self).__init__()
 
@@ -99,7 +106,11 @@ class Conformer(EncoderInterface):
         # That is, it does two things simultaneously:
         #   (1) subsampling: T -> T//subsampling_factor
         #   (2) embedding: num_features -> d_model
-        self.encoder_embed = Conv2dSubsampling(num_features, d_model)
+        self.encoder_embed = Conv2dSubsampling(
+            num_features,
+            d_model,
+            for_pnnx=for_pnnx,
+        )
 
         self.encoder_layers = num_encoder_layers
         self.d_model = d_model
@@ -111,6 +122,7 @@ class Conformer(EncoderInterface):
         self.num_left_chunks = num_left_chunks
 
         self.encoder_pos = RelPositionalEncoding(d_model, dropout)
+        self.make_pad_mask = MakePadMask()
 
         encoder_layer = ConformerEncoderLayer(
             d_model,
@@ -123,6 +135,8 @@ class Conformer(EncoderInterface):
         )
         self.encoder = ConformerEncoder(encoder_layer, num_encoder_layers)
         self._init_state: List[torch.Tensor] = [torch.empty(0)]
+
+        self.for_pnnx = for_pnnx
 
     def forward(
         self, x: torch.Tensor, x_lens: torch.Tensor, warmup: float = 1.0
@@ -153,12 +167,17 @@ class Conformer(EncoderInterface):
         #  lengths = ((x_lens - 1) // 2 - 1) // 2 # issue an warning
         #
         # Note: rounding_mode in torch.div() is available only in torch >= 1.8.0
-        lengths = (((x_lens - 1) >> 1) - 1) >> 1
+        if not self.for_pnnx:
+            lengths = (((x_lens - 1) >> 1) - 1) >> 1
+        else:
+            lengths1 = torch.floor((x_lens - 1) / 2)
+            lengths = torch.floor((lengths1 - 1) / 2)
+            lengths = lengths.to(x_lens)
 
         if not torch.jit.is_tracing():
             assert x.size(0) == lengths.max().item()
 
-        src_key_padding_mask = make_pad_mask(lengths)
+        src_key_padding_mask = self.make_pad_mask(lengths)
 
         if self.dynamic_chunk_training:
             assert (
@@ -798,7 +817,7 @@ class RelPositionalEncoding(torch.nn.Module):
 
         self.d_model = d_model
         self.dropout = torch.nn.Dropout(p=dropout_rate)
-        self.pe = None
+        self.register_buffer("pe", None)
         self.extend_pe(torch.tensor(0.0).expand(1, max_len))
 
     def extend_pe(self, x: Tensor, left_context: int = 0) -> None:
@@ -1538,6 +1557,7 @@ class Conv2dSubsampling(nn.Module):
         layer1_channels: int = 8,
         layer2_channels: int = 32,
         layer3_channels: int = 128,
+        for_pnnx: bool = False,
     ) -> None:
         """
         Args:
@@ -1592,6 +1612,10 @@ class Conv2dSubsampling(nn.Module):
             channel_dim=-1, min_positive=0.45, max_positive=0.55
         )
 
+        # ncnn support only batch size == 1
+        self.for_pnnx = for_pnnx
+        self.conv_out_dim = self.out.weight.shape[1]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Subsample x.
 
@@ -1606,8 +1630,12 @@ class Conv2dSubsampling(nn.Module):
         x = x.unsqueeze(1)  # (N, T, idim) -> (N, 1, T, idim) i.e., (N, C, H, W)
         x = self.conv(x)
         # Now x is of shape (N, odim, ((T-1)//2 - 1)//2, ((idim-1)//2 - 1)//2)
-        b, c, t, f = x.size()
-        x = self.out(x.transpose(1, 2).contiguous().view(b, t, c * f))
+        if torch.jit.is_tracing() and self.for_pnnx:
+            x = x.permute(0, 2, 1, 3).reshape(1, -1, self.conv_out_dim)
+            x = self.out(x)
+        else:
+            b, c, t, f = x.size()
+            x = self.out(x.transpose(1, 2).contiguous().view(b, t, c * f))
         # Now x is of shape (N, ((T-1)//2 - 1))//2, odim)
         x = self.out_norm(x)
         x = self.out_balancer(x)
