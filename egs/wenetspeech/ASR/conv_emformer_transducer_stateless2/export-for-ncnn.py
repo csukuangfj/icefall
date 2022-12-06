@@ -1,28 +1,10 @@
 #!/usr/bin/env python3
 #
-# Copyright 2021 Xiaomi Corporation (Author: Fangjun Kuang)
-#
-# See ../../../../LICENSE for clarification regarding multiple authors
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# This script converts several saved checkpoints
-# to a single one using model averaging.
 """
 Usage:
 ./conv_emformer_transducer_stateless2/export-for-ncnn.py \
   --exp-dir ./conv_emformer_transducer_stateless2/exp \
-  --bpe-model data/lang_bpe_500/bpe.model \
+  --lang-dir data/char \
   --epoch 30 \
   --avg 10 \
   --use-averaged-model=True \
@@ -31,37 +13,29 @@ Usage:
   --cnn-module-kernel 31 \
   --left-context-length 32 \
   --right-context-length 8 \
-  --memory-size 32 \
+  --memory-size 32
 
-It will generate a file exp_dir/pretrained.pt
+cd conv_emformer_transducer_stateless2/exp
 
-To use the generated file with `conv_emformer_transducer_stateless2/decode.py`,
-you can do:
+pnnx ./encoder_jit_trace-pnnx.pt
+pnnx ./decoder_jit_trace-pnnx.pt
+pnnx ./joiner_jit_trace-pnnx.pt
 
-    cd /path/to/exp_dir
-    ln -s pretrained.pt epoch-9999.pt
+You can find pre-trained models in the following repositories
+https://huggingface.co/ptrnull/icefall-asr-conv-emformer-transducer-stateless2-zh
+https://huggingface.co/csukuangfj/sherpa-ncnn-conv-emformer-transducer-2022-12-06
 
-    cd /path/to/egs/librispeech/ASR
-    ./conv_emformer_transducer_stateless2/decode.py \
-        --exp-dir ./conv_emformer_transducer_stateless2/exp \
-        --epoch 9999 \
-        --avg 1 \
-        --max-duration 100 \
-        --bpe-model data/lang_bpe_500/bpe.model \
-        --use-averaged-model=False \
-        --num-encoder-layers 12 \
-        --chunk-length 32 \
-        --cnn-module-kernel 31 \
-        --left-context-length 32 \
-        --right-context-length 8 \
-        --memory-size 32
+Please see
+https://github.com/k2-fsa/sherpa-ncnn
+and
+./streaming-ncnn-decode.py
+for usages.
 """
 
 import argparse
 import logging
 from pathlib import Path
 
-import sentencepiece as spm
 import torch
 from scaling_converter import convert_scaled_to_non_scaled
 from train2 import add_model_arguments, get_params, get_transducer_model
@@ -72,6 +46,7 @@ from icefall.checkpoint import (
     find_checkpoints,
     load_checkpoint,
 )
+from icefall.lexicon import Lexicon
 from icefall.utils import str2bool
 
 
@@ -118,10 +93,10 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--bpe-model",
+        "--lang-dir",
         type=str,
-        default="data/lang_bpe_500/bpe.model",
-        help="Path to the BPE model",
+        default="data/lang_char",
+        help="The lang dir",
     )
 
     parser.add_argument(
@@ -248,12 +223,10 @@ def main():
 
     logging.info(f"device: {device}")
 
-    sp = spm.SentencePieceProcessor()
-    sp.load(params.bpe_model)
+    lexicon = Lexicon(params.lang_dir)
 
-    # <blk> is defined in local/train_bpe_model.py
-    params.blank_id = sp.piece_to_id("<blk>")
-    params.vocab_size = sp.get_piece_size()
+    params.blank_id = 0
+    params.vocab_size = max(lexicon.tokens) + 1
 
     logging.info(params)
 

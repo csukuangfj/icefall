@@ -72,7 +72,7 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 from asr_datamodule import WenetSpeechAsrDataModule
 from decoder import Decoder
-from emformer import Emformer
+from emformer2 import Emformer
 from joiner import Joiner
 from lhotse.cut import Cut
 from lhotse.dataset.sampling.base import CutSampler
@@ -459,6 +459,7 @@ def get_encoder_model(params: AttributeDict) -> nn.Module:
         left_context_length=params.left_context_length,
         right_context_length=params.right_context_length,
         memory_size=params.memory_size,
+        is_pnnx=True,
     )
     return encoder
 
