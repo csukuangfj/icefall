@@ -38,6 +38,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
+from icefall.char_graph_compiler import CharCtcTrainingGraphCompiler
 from icefall.checkpoint import average_checkpoints
 
 Pathlike = Union[str, Path]
@@ -1243,7 +1244,8 @@ def tokenize_by_bpe_model(
 def display_and_save_batch(
     batch: dict,
     params: AttributeDict,
-    sp: spm.SentencePieceProcessor,
+    sp: Optional[spm.SentencePieceProcessor] = None,
+    graph_compiler: Optional[CharCtcTrainingGraphCompiler] = None,
 ) -> None:
     """Display the batch statistics and save the batch into disk.
 
@@ -1267,7 +1269,10 @@ def display_and_save_batch(
 
     logging.info(f"features shape: {features.shape}")
 
-    y = sp.encode(supervisions["text"], out_type=int)
+    if sp is not None:
+        y = sp.encode(supervisions["text"], out_type=int)
+    else:
+        y = [text.replace(" ", "") for text in supervisions["text"]]
     num_tokens = sum(len(i) for i in y)
     logging.info(f"num tokens: {num_tokens}")
 
