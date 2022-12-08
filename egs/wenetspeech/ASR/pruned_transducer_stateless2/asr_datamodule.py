@@ -46,9 +46,6 @@ from torch.utils.data import DataLoader
 
 from icefall.utils import str2bool
 
-set_caching_enabled(False)
-torch.set_num_threads(1)
-
 
 class _SeedWorkers:
     def __init__(self, seed: int):
@@ -109,7 +106,7 @@ class WenetSpeechAsrDataModule:
         group.add_argument(
             "--num-buckets",
             type=int,
-            default=300,
+            default=30,
             help="The number of buckets for the DynamicBucketingSampler"
             "(you might want to increase it for larger datasets).",
         )
@@ -162,7 +159,7 @@ class WenetSpeechAsrDataModule:
         group.add_argument(
             "--num-workers",
             type=int,
-            default=2,
+            default=4,
             help="The number of training dataloader workers that "
             "collect the batches.",
         )
@@ -295,7 +292,6 @@ class WenetSpeechAsrDataModule:
                 max_duration=self.args.max_duration,
                 shuffle=self.args.shuffle,
                 num_buckets=self.args.num_buckets,
-                buffer_size=30000,
                 drop_last=True,
             )
         else:
@@ -351,9 +347,9 @@ class WenetSpeechAsrDataModule:
         valid_sampler = DynamicBucketingSampler(
             cuts_valid,
             max_duration=self.args.max_duration,
+            shuffle=False,
             rank=0,
             world_size=1,
-            shuffle=False,
         )
         logging.info("About to create dev dataloader")
 
@@ -402,7 +398,7 @@ class WenetSpeechAsrDataModule:
 
     @lru_cache()
     def train_cuts(self) -> CutSet:
-        logging.info("About to get train cuts")
+        logging.info(f"About to get train cuts {self.args.training_subset}")
         cuts_train = load_manifest_lazy(
             self.args.manifest_dir / f"cuts_{self.args.training_subset}.jsonl.gz"
         )
