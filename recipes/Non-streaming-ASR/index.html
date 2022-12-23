@@ -4,7 +4,7 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TIMIT &mdash; icefall 0.1 documentation</title>
+  <title>Non Streaming ASR &mdash; icefall 0.1 documentation</title>
       <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
   <!--[if lt IE 9]>
@@ -20,8 +20,8 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="TDNN-LiGRU-CTC" href="tdnn_ligru_ctc.html" />
-    <link rel="prev" title="LSTM Transducer" href="../librispeech/lstm_pruned_stateless_transducer.html" /> 
+    <link rel="next" title="aishell" href="aishell/index.html" />
+    <link rel="prev" title="Recipes" href="../index.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -40,20 +40,24 @@
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul class="current">
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="../../installation/index.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../model-export/index.html">Model export</a></li>
+</ul>
+<ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">Recipes</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="../aishell/index.html">aishell</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../librispeech/index.html">LibriSpeech</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">TIMIT</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="tdnn_ligru_ctc.html">TDNN-LiGRU-CTC</a></li>
-<li class="toctree-l3"><a class="reference internal" href="tdnn_lstm_ctc.html">TDNN-LSTM-CTC</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Non Streaming ASR</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="aishell/index.html">aishell</a></li>
+<li class="toctree-l3"><a class="reference internal" href="librispeech/index.html">LibriSpeech</a></li>
+<li class="toctree-l3"><a class="reference internal" href="timit/index.html">TIMIT</a></li>
+<li class="toctree-l3"><a class="reference internal" href="yesno/index.html">YesNo</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../yesno/index.html">YesNo</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../Streaming-ASR/index.html">Streaming ASR</a></li>
 </ul>
 </li>
+</ul>
+<ul>
 <li class="toctree-l1"><a class="reference internal" href="../../contributing/index.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../huggingface/index.html">Huggingface</a></li>
 </ul>
@@ -73,9 +77,9 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../../index.html" class="icon icon-home"></a></li>
           <li class="breadcrumb-item"><a href="../index.html">Recipes</a></li>
-      <li class="breadcrumb-item active">TIMIT</li>
+      <li class="breadcrumb-item active">Non Streaming ASR</li>
       <li class="wy-breadcrumbs-aside">
-              <a href="https://github.com/k2-fsa/icefall/blob/master/docs/source/recipes/timit/index.rst" class="fa fa-github"> Edit on GitHub</a>
+              <a href="https://github.com/k2-fsa/icefall/blob/master/docs/source/recipes/Non-streaming-ASR/index.rst" class="fa fa-github"> Edit on GitHub</a>
       </li>
   </ul>
   <hr/>
@@ -83,12 +87,32 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="timit">
-<h1>TIMIT<a class="headerlink" href="#timit" title="Permalink to this heading"></a></h1>
+  <section id="non-streaming-asr">
+<h1>Non Streaming ASR<a class="headerlink" href="#non-streaming-asr" title="Permalink to this heading"></a></h1>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="tdnn_ligru_ctc.html">TDNN-LiGRU-CTC</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tdnn_lstm_ctc.html">TDNN-LSTM-CTC</a></li>
+<li class="toctree-l1"><a class="reference internal" href="aishell/index.html">aishell</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="aishell/tdnn_lstm_ctc.html">TDNN-LSTM CTC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="aishell/conformer_ctc.html">Conformer CTC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="aishell/stateless_transducer.html">Stateless Transducer</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="librispeech/index.html">LibriSpeech</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="librispeech/tdnn_lstm_ctc.html">TDNN-LSTM-CTC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="librispeech/conformer_ctc.html">Conformer CTC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="librispeech/pruned_transducer_stateless.html">Pruned transducer statelessX</a></li>
+<li class="toctree-l2"><a class="reference internal" href="librispeech/zipformer_mmi.html">Zipformer MMI</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="timit/index.html">TIMIT</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="timit/tdnn_ligru_ctc.html">TDNN-LiGRU-CTC</a></li>
+<li class="toctree-l2"><a class="reference internal" href="timit/tdnn_lstm_ctc.html">TDNN-LSTM-CTC</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="yesno/index.html">YesNo</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="yesno/tdnn.html">TDNN-CTC</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </section>
@@ -97,8 +121,8 @@
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../librispeech/lstm_pruned_stateless_transducer.html" class="btn btn-neutral float-left" title="LSTM Transducer" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="tdnn_ligru_ctc.html" class="btn btn-neutral float-right" title="TDNN-LiGRU-CTC" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="../index.html" class="btn btn-neutral float-left" title="Recipes" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="aishell/index.html" class="btn btn-neutral float-right" title="aishell" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
