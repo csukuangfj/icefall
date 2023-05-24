@@ -3,18 +3,6 @@
 Installation
 ============
 
-
-
-``icefall`` depends on `k2 <https://github.com/k2-fsa/k2>`_ and
-`lhotse <https://github.com/lhotse-speech/lhotse>`_.
-
-We recommend that you use the following steps to install the dependencies.
-
-- (0) Install CUDA toolkit and cuDNN
-- (1) Install PyTorch and torchaudio
-- (2) Install k2
-- (3) Install lhotse
-
 .. caution::
 
    99% users who have issues about the installation are using conda.
@@ -38,6 +26,16 @@ We recommend that you use the following steps to install the dependencies.
         python3 -m venv ./my_env
         source ./my_env/bin/activate
 
+``icefall`` depends on `k2 <https://github.com/k2-fsa/k2>`_ and
+`lhotse <https://github.com/lhotse-speech/lhotse>`_.
+
+We recommend that you use the following steps to install the dependencies.
+
+- (0) Install CUDA toolkit and cuDNN (Required if you want to use CUDA)
+- (1) Install PyTorch and torchaudio
+- (2) Install k2
+- (3) Install lhotse
+
 .. caution::
 
   Installation order matters.
@@ -48,7 +46,6 @@ We recommend that you use the following steps to install the dependencies.
 Please refer to
 `<https://k2-fsa.github.io/k2/installation/cuda-cudnn.html>`_
 to install CUDA and cuDNN.
-
 
 (1) Install PyTorch and torchaudio
 ----------------------------------
@@ -133,214 +130,254 @@ Installation example
 The following shows an example about setting up the environment.
 
 
-(1) Create a virtual environment
+(1) Create a virtual environment and activate it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  .. code-block:: bash
+
+  kuangfangjun:fangjun$ python3 -m venv test-icefall
+  kuangfangjun:fangjun$ source test-icefall/bin/activate
+  (test-icefall) kuangfangjun:fangjun$
+
+(2) Install CUDA toolkit and cuDNN
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before installing CUDA toolkit, we have to decide which version of CUDA to install.
+
+Before deciding which version of CUDA to install, we have to decide which version
+of PyTorch to install.
+
+In this example, we will install the following wheel,
+
+  `<https://download.pytorch.org/whl/cu116/torch-1.13.0%2Bcu116-cp38-cp38-linux_x86_64.whl>`_
+
+which means we will use torch 1.13.0, CUDA 11.6, and Python 3.8.
+
+.. hint::
+
+   You can choose a version that is a best fit for you.
+
+So we are going to install CUDA 11.6 in this example, we can follow
+`<https://k2-fsa.github.io/k2/installation/cuda-cudnn.html#cuda-11-6>`_
+to install it.
+
+.. hint::
+
+   Please also follow the above link to install cuDNN.
+
+.. caution::
+
+   Please ``d o n ' t`` use ``conda install`` to install CUDA toolkit. Otherwise,
+   you may be ``S A D`` later.
+
+Before we continue, let us check that we have installed CUDA 11.6 successfully:
+
+.. code-block:: bash
+
+  (test-icefall) kuangfangjun:fangjun$ nvcc --version
+  nvcc: NVIDIA (R) Cuda compiler driver
+  Copyright (c) 2005-2022 NVIDIA Corporation
+  Built on Thu_Feb_10_18:23:41_PST_2022
+  Cuda compilation tools, release 11.6, V11.6.112
+  Build cuda_11.6.r11.6/compiler.30978841_0
+
+(3) Install torch and torchaudio
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: bash
+We have decided above to install torch 1.13.0 with CUDA 11.6 and Python 3.8,
+so we can go to `<https://download.pytorch.org/whl/torch_stable.html>`_
+to download the pre-compiled wheels for torch and torchaudio.
 
-  $ virtualenv -p python3.8  test-icefall
+From `<https://pytorch.org/audio/main/installation.html#compatibility-matrix>`_,
+if we are going to install ``torch 1.13.0``, we have to choose ``torchaudio 0.13.0``.
 
-  created virtual environment CPython3.8.6.final.0-64 in 1540ms
-    creator CPython3Posix(dest=/ceph-fj/fangjun/test-icefall, clear=False, no_vcs_ignore=False, global=False)
-    seeder FromAppData(download=False, pip=bundle, setuptools=bundle, wheel=bundle, via=copy, app_data_dir=/root/fangjun/.local/share/v
-  irtualenv)
-      added seed packages: pip==21.1.3, setuptools==57.4.0, wheel==0.36.2
-    activators BashActivator,CShellActivator,FishActivator,PowerShellActivator,PythonActivator,XonshActivator
-
-
-(2) Activate your virtual environment
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We can use the following commands to install torch 1.13.0 with CUDA 11.6:
 
 .. code-block:: bash
 
-  $ source test-icefall/bin/activate
+  (test-icefall) kuangfangjun:fangjun$ wget https://download.pytorch.org/whl/cu116/torch-1.13.0%2Bcu116-cp38-cp38-linux_x86_64.whl
+  (test-icefall) kuangfangjun:fangjun$ wget https://download.pytorch.org/whl/cu116/torchaudio-0.13.0%2Bcu116-cp38-cp38-linux_x86_64.whl
+  (test-icefall) kuangfangjun:fangjun$ pip install ./torch-1.13.0+cu116-cp38-cp38-linux_x86_64.whl ./torchaudio-0.13.0+cu116-cp38-cp38-linux_x86_64.whl
+
+  Processing ./torch-1.13.0+cu116-cp38-cp38-linux_x86_64.whl
+  Processing ./torchaudio-0.13.0+cu116-cp38-cp38-linux_x86_64.whl
+  Collecting typing-extensions (from torch==1.13.0+cu116)
+    Downloading https://files.pythonhosted.org/packages/85/d2/949d324c348014f0fd2e8e6d8efd3c0adefdcecd28990d4144f2cfc8105e/typing_extensions-4.6.0-py3-none-any.whl
+  Installing collected packages: typing-extensions, torch, torchaudio
+  Successfully installed torch-1.13.0+cu116 torchaudio-0.13.0+cu116 typing-extensions-4.6.0
+
+Before we continue, let us check that we have installed torch and torchaudio successfully
+by using the following command
+
+.. code-block:: bash
+
+  (test-icefall) kuangfangjun:fangjun$ python3 -m torch.utils.collect_env
+
+The output is given below:
+
+.. code-block:: bash
+
+  Collecting environment information...
+  PyTorch version: 1.13.0+cu116
+  Is debug build: False
+  CUDA used to build PyTorch: 11.6
+  ROCM used to build PyTorch: N/A
+
+  OS: Ubuntu 18.04.5 LTS (x86_64)
+  GCC version: (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0
+  Clang version: Could not collect
+  CMake version: version 3.21.6
+  Libc version: glibc-2.27
+
+  Python version: 3.8.0 (default, Oct 28 2019, 16:14:01)  [GCC 8.3.0] (64-bit runtime)
+  Python platform: Linux-5.4.54-2.0.4.std7c.el7.x86_64-x86_64-with-glibc2.27
+  Is CUDA available: True
+  CUDA runtime version: 11.6.112
+  CUDA_MODULE_LOADING set to: LAZY
+  GPU models and configuration:
+  GPU 0: Tesla V100-PCIE-32GB
+  GPU 1: Tesla V100-PCIE-32GB
+  GPU 2: Tesla V100-PCIE-32GB
+  GPU 3: Tesla V100-PCIE-32GB
+  GPU 4: Tesla V100-PCIE-32GB
+  GPU 5: Tesla V100-PCIE-32GB
+  GPU 6: Tesla V100-PCIE-32GB
+  GPU 7: Tesla V100-PCIE-32GB
+
+  Nvidia driver version: 510.47.03
+  cuDNN version: /usr/lib/x86_64-linux-gnu/libcudnn.so.7.6.2
+  HIP runtime version: N/A
+  MIOpen runtime version: N/A
+  Is XNNPACK available: True
+
+  Versions of relevant libraries:
+  [pip3] torch==1.13.0+cu116
+  [pip3] torchaudio==0.13.0+cu116
+  [conda] Could not collect
 
 (3) Install k2
 ~~~~~~~~~~~~~~
 
+The following link:
+
+  `<https://k2-fsa.github.io/k2/installation/index.html>`_
+
+lists several methods to install `k2`_.
+
+In this example, we will install `k2`_ from source by following
+`<https://k2-fsa.github.io/k2/installation/from_source.html>`_.
+
 .. code-block:: bash
 
-  $ pip install k2==1.4.dev20210822+cpu.torch1.9.0 -f https://k2-fsa.org/nightly/index.html
+  (test-icefall) kuangfangjun:fangjun$ git clone https://github.com/k2-fsa/k2.git
+  Cloning into 'k2'...
+  remote: Enumerating objects: 14565, done.
+  remote: Counting objects: 100% (836/836), done.
+  remote: Compressing objects: 100% (244/244), done.
+  remote: Total 14565 (delta 630), reused 764 (delta 587), pack-reused 13729
+  Receiving objects: 100% (14565/14565), 15.52 MiB | 8.00 MiB/s, done.
+  Resolving deltas: 100% (10201/10201), done.
+  Checking out files: 100% (667/667), done.
 
-  Looking in links: https://k2-fsa.org/nightly/index.html
-  Collecting k2==1.4.dev20210822+cpu.torch1.9.0
-    Downloading https://k2-fsa.org/nightly/whl/k2-1.4.dev20210822%2Bcpu.torch1.9.0-cp38-cp38-linux_x86_64.whl (1.6 MB)
-       |________________________________| 1.6 MB 185 kB/s
-  Collecting graphviz
-    Downloading graphviz-0.17-py3-none-any.whl (18 kB)
-  Collecting torch==1.9.0
-    Using cached torch-1.9.0-cp38-cp38-manylinux1_x86_64.whl (831.4 MB)
-  Collecting typing-extensions
-    Using cached typing_extensions-3.10.0.0-py3-none-any.whl (26 kB)
-  Installing collected packages: typing-extensions, torch, graphviz, k2
-  Successfully installed graphviz-0.17 k2-1.4.dev20210822+cpu.torch1.9.0 torch-1.9.0 typing-extensions-3.10.0.0
+  (test-icefall) kuangfangjun:fangjun$ cd k2
+  (test-icefall) kuangfangjun:k2$ python3 setup.py install
 
-.. WARNING::
+To check that `k2`_ has been install successfully, please run:
 
-  We choose to install a CPU version of k2 for testing. You would probably want to install
-  a CUDA version of k2.
+.. code-block:: bash
 
+  (test-icefall) kuangfangjun:k2$ python3 -m k2.version
+
+The output is given below:
+
+.. code-block:: bash
+
+  Collecting environment information...
+
+  k2 version: 1.24.3
+  Build type: Release
+  Git SHA1: 2fd1aa794f62efc06f27e7d8b886d05189a65b5a
+  Git date: Mon May 22 16:30:55 2023
+  Cuda used to build k2: 11.6
+  cuDNN used to build k2: 8.2.1
+  Python version used to build k2: 3.8
+  OS used to build k2: Ubuntu 18.04.5 LTS
+  CMake version: 3.21.6
+  GCC version: 7.5.0
+  CMAKE_CUDA_FLAGS:  -Wno-deprecated-gpu-targets   -lineinfo --expt-extended-lambda -use_fast_math -Xptxas=-w  --expt-extended-lambda -gencode arch=compute_70,code=sm_70 -DONNX_NAMESPACE=onnx_c2 -gencode arch=compute_70,code=sm_70 -Xcudafe --diag_suppress=cc_clobber_ignored,--diag_suppress=integer_sign_change,--diag_suppress=useless_using_declaration,--diag_suppress=set_but_not_used,--diag_suppress=field_without_dll_interface,--diag_suppress=base_class_has_different_dll_interface,--diag_suppress=dll_interface_conflict_none_assumed,--diag_suppress=dll_interface_conflict_dllexport_assumed,--diag_suppress=implicit_return_from_non_void_function,--diag_suppress=unsigned_compare_with_zero,--diag_suppress=declared_but_not_referenced,--diag_suppress=bad_friend_decl --expt-relaxed-constexpr --expt-extended-lambda -D_GLIBCXX_USE_CXX11_ABI=0 --compiler-options -Wall  --compiler-options -Wno-strict-overflow  --compiler-options -Wno-unknown-pragmas
+  CMAKE_CXX_FLAGS:  -D_GLIBCXX_USE_CXX11_ABI=0 -Wno-unused-variable  -Wno-strict-overflow
+  PyTorch version used to build k2: 1.13.0+cu116
+  PyTorch is using Cuda: 11.6
+  NVTX enabled: True
+  With CUDA: True
+  Disable debug: True
+  Sync kernels : False
+  Disable checks: False
+  Max cpu memory allocate: 214748364800 bytes (or 200.0 GB)
+  k2 abort: False
+  __file__: /star-fj/fangjun/test-icefall/lib/python3.8/site-packages/k2-1.24.3.dev20230523+cuda11.6.torch1.13.0-py3.8-linux-x86_64.egg/k2/version/version.py
+  _k2.__file__: /star-fj/fangjun/test-icefall/lib/python3.8/site-packages/k2-1.24.3.dev20230523+cuda11.6.torch1.13.0-py3.8-linux-x86_64.egg/_k2.cpython-38-x86_64-linux-gnu.so
 
 (4) Install lhotse
 ~~~~~~~~~~~~~~~~~~
 
 .. code-block::
 
-  $ pip install git+https://github.com/lhotse-speech/lhotse
+  (test-icefall) kuangfangjun:~$ pip install git+https://github.com/lhotse-speech/lhotse
 
-  Collecting git+https://github.com/lhotse-speech/lhotse
-    Cloning https://github.com/lhotse-speech/lhotse to /tmp/pip-req-build-7b1b76ge
-    Running command git clone -q https://github.com/lhotse-speech/lhotse /tmp/pip-req-build-7b1b76ge
-  Collecting audioread>=2.1.9
-    Using cached audioread-2.1.9-py3-none-any.whl
-  Collecting SoundFile>=0.10
-    Using cached SoundFile-0.10.3.post1-py2.py3-none-any.whl (21 kB)
-  Collecting click>=7.1.1
-    Using cached click-8.0.1-py3-none-any.whl (97 kB)
-  Collecting cytoolz>=0.10.1
-    Using cached cytoolz-0.11.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (1.9 MB)
-  Collecting dataclasses
-    Using cached dataclasses-0.6-py3-none-any.whl (14 kB)
-  Collecting h5py>=2.10.0
-    Downloading h5py-3.4.0-cp38-cp38-manylinux_2_12_x86_64.manylinux2010_x86_64.whl (4.5 MB)
-       |________________________________| 4.5 MB 684 kB/s
-  Collecting intervaltree>=3.1.0
-    Using cached intervaltree-3.1.0-py2.py3-none-any.whl
-  Collecting lilcom>=1.1.0
-    Using cached lilcom-1.1.1-cp38-cp38-linux_x86_64.whl
-  Collecting numpy>=1.18.1
-    Using cached numpy-1.21.2-cp38-cp38-manylinux_2_12_x86_64.manylinux2010_x86_64.whl (15.8 MB)
-  Collecting packaging
-    Using cached packaging-21.0-py3-none-any.whl (40 kB)
-  Collecting pyyaml>=5.3.1
-    Using cached PyYAML-5.4.1-cp38-cp38-manylinux1_x86_64.whl (662 kB)
-  Collecting tqdm
-    Downloading tqdm-4.62.1-py2.py3-none-any.whl (76 kB)
-       |________________________________| 76 kB 2.7 MB/s
-  Collecting torchaudio==0.9.0
-    Downloading torchaudio-0.9.0-cp38-cp38-manylinux1_x86_64.whl (1.9 MB)
-       |________________________________| 1.9 MB 73.1 MB/s
-  Requirement already satisfied: torch==1.9.0 in ./test-icefall/lib/python3.8/site-packages (from torchaudio==0.9.0->lhotse===0.8.0.dev
-  -2a1410b-clean) (1.9.0)
-  Requirement already satisfied: typing-extensions in ./test-icefall/lib/python3.8/site-packages (from torch==1.9.0->torchaudio==0.9.0-
-  >lhotse===0.8.0.dev-2a1410b-clean) (3.10.0.0)
-  Collecting toolz>=0.8.0
-    Using cached toolz-0.11.1-py3-none-any.whl (55 kB)
-  Collecting sortedcontainers<3.0,>=2.0
-    Using cached sortedcontainers-2.4.0-py2.py3-none-any.whl (29 kB)
-  Collecting cffi>=1.0
-    Using cached cffi-1.14.6-cp38-cp38-manylinux1_x86_64.whl (411 kB)
-  Collecting pycparser
-    Using cached pycparser-2.20-py2.py3-none-any.whl (112 kB)
-  Collecting pyparsing>=2.0.2
-    Using cached pyparsing-2.4.7-py2.py3-none-any.whl (67 kB)
-  Building wheels for collected packages: lhotse
-    Building wheel for lhotse (setup.py) ... done
-    Created wheel for lhotse: filename=lhotse-0.8.0.dev_2a1410b_clean-py3-none-any.whl size=342242 sha256=f683444afa4dc0881133206b4646a
-  9d0f774224cc84000f55d0a67f6e4a37997
-    Stored in directory: /tmp/pip-ephem-wheel-cache-ftu0qysz/wheels/7f/7a/8e/a0bf241336e2e3cb573e1e21e5600952d49f5162454f2e612f
-    WARNING: Built wheel for lhotse is invalid: Metadata 1.2 mandates PEP 440 version, but '0.8.0.dev-2a1410b-clean' is not
-  Failed to build lhotse
-  Installing collected packages: pycparser, toolz, sortedcontainers, pyparsing, numpy, cffi, tqdm, torchaudio, SoundFile, pyyaml, packa
-  ging, lilcom, intervaltree, h5py, dataclasses, cytoolz, click, audioread, lhotse
-      Running setup.py install for lhotse ... done
-    DEPRECATION: lhotse was installed using the legacy 'setup.py install' method, because a wheel could not be built for it. A possible
-   replacement is to fix the wheel build issue reported above. You can find discussion regarding this at https://github.com/pypa/pip/is
-  sues/8368.
-  Successfully installed SoundFile-0.10.3.post1 audioread-2.1.9 cffi-1.14.6 click-8.0.1 cytoolz-0.11.0 dataclasses-0.6 h5py-3.4.0 inter
-  valtree-3.1.0 lhotse-0.8.0.dev-2a1410b-clean lilcom-1.1.1 numpy-1.21.2 packaging-21.0 pycparser-2.20 pyparsing-2.4.7 pyyaml-5.4.1 sor
-  tedcontainers-2.4.0 toolz-0.11.1 torchaudio-0.9.0 tqdm-4.62.1
+.. caution::
+
+   Make sure you have install ``torch`` and ``torchaudio`` before you install `lhotse`_.
+   Otherwise, you will be ``S A D`` later.
+
+If you get the following error while installing `lhotse`_:
+
+.. code-block:: bash
+
+   RuntimeError: Cython required to build dev version of cytoolz.
+
+please run the following command to fix it:
+
+.. code-block:: bash
+
+   pip install cython
+
+If you get the following error while installing `lhotse`_:
+
+.. code-block:: bash
+
+  error: invalid command 'bdist_wheel'
+
+please run the following command to fix it:
+
+.. code-block:: bash
+
+   pip install wheel
+
+Check that you have installed `lhotse`_ successfully:
+
+.. code-block:: bash
+
+  (test-icefall) kuangfangjun:~$ python3 -c "import lhotse; print(lhotse.__version__)"
+  1.15.0.dev+git.ed8620d7.clean
 
 (5) Download icefall
 ~~~~~~~~~~~~~~~~~~~~
 
+In the following, we will install `icefall`_ to the directory ``/tmp``.
+You can select any other directory.
+
 .. code-block::
+
+(test-icefall) kuangfangjun:~$ cd /tmp
+(test-icefall) kuangfangjun:tmp$ git clone https://github.com/k2-fsa/icefall
+(test-icefall) kuangfangjun:tmp$ cd icefall
+(test-icefall) kuangfangjun:icefall$ pip install -r requirements.txt
 
   $ cd /tmp
   $ git clone https://github.com/k2-fsa/icefall
-
-  Cloning into 'icefall'...
-  remote: Enumerating objects: 500, done.
-  remote: Counting objects: 100% (500/500), done.
-  remote: Compressing objects: 100% (308/308), done.
-  remote: Total 500 (delta 263), reused 307 (delta 102), pack-reused 0
-  Receiving objects: 100% (500/500), 172.49 KiB | 385.00 KiB/s, done.
-  Resolving deltas: 100% (263/263), done.
-
   $ cd icefall
   $ pip install -r requirements.txt
-
-  Collecting kaldilm
-    Downloading kaldilm-1.8.tar.gz (48 kB)
-       |________________________________| 48 kB 574 kB/s
-  Collecting kaldialign
-    Using cached kaldialign-0.2-cp38-cp38-linux_x86_64.whl
-  Collecting sentencepiece>=0.1.96
-    Using cached sentencepiece-0.1.96-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (1.2 MB)
-  Collecting tensorboard
-    Using cached tensorboard-2.6.0-py3-none-any.whl (5.6 MB)
-  Requirement already satisfied: setuptools>=41.0.0 in /ceph-fj/fangjun/test-icefall/lib/python3.8/site-packages (from tensorboard->-r
-  requirements.txt (line 4)) (57.4.0)
-  Collecting absl-py>=0.4
-    Using cached absl_py-0.13.0-py3-none-any.whl (132 kB)
-  Collecting google-auth-oauthlib<0.5,>=0.4.1
-    Using cached google_auth_oauthlib-0.4.5-py2.py3-none-any.whl (18 kB)
-  Collecting grpcio>=1.24.3
-    Using cached grpcio-1.39.0-cp38-cp38-manylinux2014_x86_64.whl (4.3 MB)
-  Requirement already satisfied: wheel>=0.26 in /ceph-fj/fangjun/test-icefall/lib/python3.8/site-packages (from tensorboard->-r require
-  ments.txt (line 4)) (0.36.2)
-  Requirement already satisfied: numpy>=1.12.0 in /ceph-fj/fangjun/test-icefall/lib/python3.8/site-packages (from tensorboard->-r requi
-  rements.txt (line 4)) (1.21.2)
-  Collecting protobuf>=3.6.0
-    Using cached protobuf-3.17.3-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.whl (1.0 MB)
-  Collecting werkzeug>=0.11.15
-    Using cached Werkzeug-2.0.1-py3-none-any.whl (288 kB)
-  Collecting tensorboard-data-server<0.7.0,>=0.6.0
-    Using cached tensorboard_data_server-0.6.1-py3-none-manylinux2010_x86_64.whl (4.9 MB)
-  Collecting google-auth<2,>=1.6.3
-    Downloading google_auth-1.35.0-py2.py3-none-any.whl (152 kB)
-       |________________________________| 152 kB 1.4 MB/s
-  Collecting requests<3,>=2.21.0
-    Using cached requests-2.26.0-py2.py3-none-any.whl (62 kB)
-  Collecting tensorboard-plugin-wit>=1.6.0
-    Using cached tensorboard_plugin_wit-1.8.0-py3-none-any.whl (781 kB)
-  Collecting markdown>=2.6.8
-    Using cached Markdown-3.3.4-py3-none-any.whl (97 kB)
-  Collecting six
-    Using cached six-1.16.0-py2.py3-none-any.whl (11 kB)
-  Collecting cachetools<5.0,>=2.0.0
-    Using cached cachetools-4.2.2-py3-none-any.whl (11 kB)
-  Collecting rsa<5,>=3.1.4
-    Using cached rsa-4.7.2-py3-none-any.whl (34 kB)
-  Collecting pyasn1-modules>=0.2.1
-    Using cached pyasn1_modules-0.2.8-py2.py3-none-any.whl (155 kB)
-  Collecting requests-oauthlib>=0.7.0
-    Using cached requests_oauthlib-1.3.0-py2.py3-none-any.whl (23 kB)
-  Collecting pyasn1<0.5.0,>=0.4.6
-    Using cached pyasn1-0.4.8-py2.py3-none-any.whl (77 kB)
-  Collecting urllib3<1.27,>=1.21.1
-    Using cached urllib3-1.26.6-py2.py3-none-any.whl (138 kB)
-  Collecting certifi>=2017.4.17
-    Using cached certifi-2021.5.30-py2.py3-none-any.whl (145 kB)
-  Collecting charset-normalizer~=2.0.0
-    Using cached charset_normalizer-2.0.4-py3-none-any.whl (36 kB)
-  Collecting idna<4,>=2.5
-    Using cached idna-3.2-py3-none-any.whl (59 kB)
-  Collecting oauthlib>=3.0.0
-    Using cached oauthlib-3.1.1-py2.py3-none-any.whl (146 kB)
-  Building wheels for collected packages: kaldilm
-    Building wheel for kaldilm (setup.py) ... done
-    Created wheel for kaldilm: filename=kaldilm-1.8-cp38-cp38-linux_x86_64.whl size=897233 sha256=eccb906cafcd45bf9a7e1a1718e4534254bfb
-  f4c0d0cbc66eee6c88d68a63862
-    Stored in directory: /root/fangjun/.cache/pip/wheels/85/7d/63/f2dd586369b8797cb36d213bf3a84a789eeb92db93d2e723c9
-  Successfully built kaldilm
-  Installing collected packages: urllib3, pyasn1, idna, charset-normalizer, certifi, six, rsa, requests, pyasn1-modules, oauthlib, cach
-  etools, requests-oauthlib, google-auth, werkzeug, tensorboard-plugin-wit, tensorboard-data-server, protobuf, markdown, grpcio, google
-  -auth-oauthlib, absl-py, tensorboard, sentencepiece, kaldilm, kaldialign
-  Successfully installed absl-py-0.13.0 cachetools-4.2.2 certifi-2021.5.30 charset-normalizer-2.0.4 google-auth-1.35.0 google-auth-oaut
-  hlib-0.4.5 grpcio-1.39.0 idna-3.2 kaldialign-0.2 kaldilm-1.8 markdown-3.3.4 oauthlib-3.1.1 protobuf-3.17.3 pyasn1-0.4.8 pyasn1-module
-  s-0.2.8 requests-2.26.0 requests-oauthlib-1.3.0 rsa-4.7.2 sentencepiece-0.1.96 six-1.16.0 tensorboard-2.6.0 tensorboard-data-server-0
-  .6.1 tensorboard-plugin-wit-1.8.0 urllib3-1.26.6 werkzeug-2.0.1
 
 
 Test Your Installation
@@ -354,11 +391,9 @@ Data preparation
 ~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
-
-  $ export PYTHONPATH=/tmp/icefall:$PYTHONPATH
-  $ cd /tmp/icefall
-  $ cd egs/yesno/ASR
-  $ ./prepare.sh
+(test-icefall) kuangfangjun:icefall$ export PYTHONPATH=/tmp/icefall:$PYTHONPATH
+(test-icefall) kuangfangjun:icefall$ cd /tmp/icefall/egs/yesno/ASR
+(test-icefall) kuangfangjun:ASR$ ./prepare.sh
 
 The log of running ``./prepare.sh`` is:
 
