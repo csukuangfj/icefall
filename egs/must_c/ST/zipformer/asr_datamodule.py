@@ -406,44 +406,44 @@ class MustCAsrDataModule:
     @lru_cache()
     def train_cuts(self) -> CutSet:
         logging.info(
-            f"About to get train data for version {args.must_c_version} with "
-            f"target lang: ${args.tgt_lang}"
+            f"About to get train data for version {self.args.must_c_version} with "
+            f"target lang: {self.args.tgt_lang}"
         )
         return load_manifest_lazy(
             self.args.manifest_dir
-            / args.must_c_version
-            / f"must_c_feats_en-{args.tgt_lang}_train.jsonl.gz"
+            / self.args.must_c_version
+            / f"must_c_feats_en-{self.args.tgt_lang}_train.jsonl.gz"
         )
 
     def dev_cuts(self) -> CutSet:
         logging.info(
-            f"About to get dev data for version {args.must_c_version} with "
-            f"target lang: ${args.tgt_lang}"
+            f"About to get dev data for version {self.args.must_c_version} with "
+            f"target lang: {self.args.tgt_lang}"
         )
         return load_manifest_lazy(
             self.args.manifest_dir
-            / args.must_c_version
-            / f"must_c_feats_en-{args.tgt_lang}_dev.jsonl.gz"
+            / self.args.must_c_version
+            / f"must_c_feats_en-{self.args.tgt_lang}_dev.jsonl.gz"
         )
 
     def tst_COMMON_cuts(self) -> CutSet:
         logging.info(
-            f"About to get tst_COMMON data for version {args.must_c_version} with "
-            f"target lang: ${args.tgt_lang}"
+            f"About to get tst_COMMON data for version {self.args.must_c_version} with "
+            f"target lang: {self.args.tgt_lang}"
         )
         return load_manifest_lazy(
             self.args.manifest_dir
-            / args.must_c_version
-            / f"must_c_feats_en-{args.tgt_lang}_tst-COMMON.jsonl.gz"
+            / self.args.must_c_version
+            / f"must_c_feats_en-{self.args.tgt_lang}_tst-COMMON.jsonl.gz"
         )
 
     def tst_HE_cuts(self) -> CutSet:
         logging.info(
-            f"About to get tst_HE data for version {args.must_c_version} with "
-            f"target lang: ${args.tgt_lang}"
+            f"About to get tst_HE data for version {self.args.must_c_version} with "
+            f"target lang: {self.args.tgt_lang}"
         )
         return load_manifest_lazy(
             self.args.manifest_dir
-            / args.must_c_version
-            / f"must_c_feats_en-{args.tgt_lang}_tst-HE.jsonl.gz"
+            / self.args.must_c_version
+            / f"must_c_feats_en-{self.args.tgt_lang}_tst-HE.jsonl.gz"
         )

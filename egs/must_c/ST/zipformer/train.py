@@ -30,7 +30,8 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
   --start-epoch 1 \
   --use-fp16 1 \
   --exp-dir zipformer/exp \
-  --version 1.0 \
+  --causal 0 \
+  --must-c-version 1.0 \
   --tgt-lang de \
   --max-duration 1000
 
@@ -42,7 +43,7 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
   --use-fp16 1 \
   --exp-dir zipformer/exp \
   --causal 1 \
-  --version 1.0 \
+  --must-c-version 1.0 \
   --tgt-lang de \
   --max-duration 1000
 
@@ -306,10 +307,10 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--bpe-model",
-        type=str,
-        default="data/lang_bpe_500/bpe.model",
-        help="Path to the BPE model",
+        "--lang-dir",
+        type=Path,
+        default="./data/lang_bpe_500",
+        help="Path to the lang_dir",
     )
 
     parser.add_argument(
@@ -1067,6 +1068,10 @@ def run(rank, world_size, args):
     logging.info(f"Device: {device}")
 
     sp = spm.SentencePieceProcessor()
+    bpe_model = params.lang_dir / params.must_c_version /params.tgt_lang / "bpe.model"
+    assert bpe_model.is_file(), bpe_model
+
+    params.bpe_model = str(bpe_model)
     sp.load(params.bpe_model)
 
     # <blk> is defined in local/train_bpe_model.py
@@ -1155,19 +1160,28 @@ def run(rank, world_size, args):
         tokens = sp.encode(c.supervisions[0].text, out_type=str)
 
         if T < len(tokens):
-            logging.warning(
-                f"Exclude cut with ID {c.id} from training. "
-                f"Number of frames (before subsampling): {c.num_frames}. "
-                f"Number of frames (after subsampling): {T}. "
-                f"Text: {c.supervisions[0].text}. "
-                f"Tokens: {tokens}. "
-                f"Number of tokens: {len(tokens)}"
-            )
+            #  logging.warning(
+            #      f"Exclude cut with ID {c.id} from training. "
+            #      f"Number of frames (before subsampling): {c.num_frames}. "
+            #      f"Number of frames (after subsampling): {T}. "
+            #      f"Text: {c.supervisions[0].text}. "
+            #      f"Tokens: {tokens}. "
+            #      f"Number of tokens: {len(tokens)}"
+            #  )
             return False
 
         return True
 
-    train_cuts = train_cuts.filter(remove_short_and_long_utt)
+    train_cuts = train_cuts.to_eager()
+    num_utt_before_fitlering = len(train_cuts)
+
+    logging.info('Filter short and long utterances')
+    train_cuts = train_cuts.filter(remove_short_and_long_utt).to_eager()
+    num_utt_after_fitlering = len(train_cuts)
+    kept_ratio = num_utt_after_fitlering/num_utt_before_fitlering * 100
+    logging.info(f'Before filtering: {num_utt_before_fitlering} utt')
+    logging.info(f'After filtering: {num_utt_after_fitlering} utt')
+    logging.info(f'{kept_ratio:.3f}% kept')
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
@@ -1181,6 +1195,7 @@ def run(rank, world_size, args):
     )
 
     valid_cuts = must_c.dev_cuts()
+    valid_cuts = valid_cuts.filter(remove_short_and_long_utt).to_eager()
     valid_dl = must_c.valid_dataloaders(valid_cuts)
 
     if not params.print_diagnostics:
