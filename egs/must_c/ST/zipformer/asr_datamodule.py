@@ -52,7 +52,7 @@ class _SeedWorkers:
         fix_random_seed(self.seed + worker_id)
 
 
-class LibriSpeechAsrDataModule:
+class MustCAsrDataModule:
     """
     DataModule for k2 ASR experiments.
     It assumes there is always one train and valid dataloader,
@@ -83,17 +83,19 @@ class LibriSpeechAsrDataModule:
             "augmentations, etc.",
         )
         group.add_argument(
-            "--full-libri",
-            type=str2bool,
-            default=True,
-            help="""Used only when --mini-libri is False.When enabled,
-            use 960h LibriSpeech. Otherwise, use 100h subset.""",
+            "--tgt-lang",
+            type=str,
+            required=True,
+            help="The target language, e.g., zh, fr, de.",
         )
         group.add_argument(
-            "--mini-libri",
-            type=str2bool,
-            default=False,
-            help="True for mini librispeech",
+            "--must-c-version",
+            type=str,
+            required=True,
+            help="""The version of the dataset, e.g., v1.0, v2.0
+            We assume there exists
+            {manifest_dir}/{must_c_version}/must_c_feats_en-{tgt_lang}_train.jsonl.gz
+            """,
         )
 
         group.add_argument(
@@ -402,74 +404,46 @@ class LibriSpeechAsrDataModule:
         return test_dl
 
     @lru_cache()
-    def train_clean_5_cuts(self) -> CutSet:
-        logging.info("mini_librispeech: About to get train-clean-5 cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_train-clean-5.jsonl.gz"
-        )
-
-    @lru_cache()
-    def train_clean_100_cuts(self) -> CutSet:
-        logging.info("About to get train-clean-100 cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_train-clean-100.jsonl.gz"
-        )
-
-    @lru_cache()
-    def train_clean_360_cuts(self) -> CutSet:
-        logging.info("About to get train-clean-360 cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_train-clean-360.jsonl.gz"
-        )
-
-    @lru_cache()
-    def train_other_500_cuts(self) -> CutSet:
-        logging.info("About to get train-other-500 cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_train-other-500.jsonl.gz"
-        )
-
-    @lru_cache()
-    def train_all_shuf_cuts(self) -> CutSet:
+    def train_cuts(self) -> CutSet:
         logging.info(
-            "About to get the shuffled train-clean-100, \
-            train-clean-360 and train-other-500 cuts"
+            f"About to get train data for version {args.must_c_version} with "
+            f"target lang: ${args.tgt_lang}"
         )
         return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_train-all-shuf.jsonl.gz"
-        )
-
-    @lru_cache()
-    def dev_clean_2_cuts(self) -> CutSet:
-        logging.info("mini_librispeech: About to get dev-clean-2 cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_dev-clean-2.jsonl.gz"
+            self.args.manifest_dir
+            / args.must_c_version
+            / f"must_c_feats_en-{args.tgt_lang}_train.jsonl.gz"
         )
 
-    @lru_cache()
-    def dev_clean_cuts(self) -> CutSet:
-        logging.info("About to get dev-clean cuts")
+    def dev_cuts(self) -> CutSet:
+        logging.info(
+            f"About to get dev data for version {args.must_c_version} with "
+            f"target lang: ${args.tgt_lang}"
+        )
         return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_dev-clean.jsonl.gz"
+            self.args.manifest_dir
+            / args.must_c_version
+            / f"must_c_feats_en-{args.tgt_lang}_dev.jsonl.gz"
         )
 
-    @lru_cache()
-    def dev_other_cuts(self) -> CutSet:
-        logging.info("About to get dev-other cuts")
+    def tst_COMMON_cuts(self) -> CutSet:
+        logging.info(
+            f"About to get tst_COMMON data for version {args.must_c_version} with "
+            f"target lang: ${args.tgt_lang}"
+        )
         return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_dev-other.jsonl.gz"
+            self.args.manifest_dir
+            / args.must_c_version
+            / f"must_c_feats_en-{args.tgt_lang}_tst-COMMON.jsonl.gz"
         )
 
-    @lru_cache()
-    def test_clean_cuts(self) -> CutSet:
-        logging.info("About to get test-clean cuts")
-        return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_test-clean.jsonl.gz"
+    def tst_HE_cuts(self) -> CutSet:
+        logging.info(
+            f"About to get tst_HE data for version {args.must_c_version} with "
+            f"target lang: ${args.tgt_lang}"
         )
-
-    @lru_cache()
-    def test_other_cuts(self) -> CutSet:
-        logging.info("About to get test-other cuts")
         return load_manifest_lazy(
-            self.args.manifest_dir / "librispeech_cuts_test-other.jsonl.gz"
+            self.args.manifest_dir
+            / args.must_c_version
+            / f"must_c_feats_en-{args.tgt_lang}_tst-HE.jsonl.gz"
         )
