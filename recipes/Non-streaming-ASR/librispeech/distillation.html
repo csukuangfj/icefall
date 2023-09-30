@@ -11,11 +11,11 @@
     <script src="../../../_static/js/html5shiv.min.js"></script>
   <![endif]-->
   
-        <script src="../../../_static/jquery.js"></script>
-        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
-        <script src="../../../_static/doctools.js"></script>
-        <script src="../../../_static/sphinx_highlight.js"></script>
+        <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js?v=e031e9a9"></script>
+        <script src="../../../_static/doctools.js?v=888ff710"></script>
+        <script src="../../../_static/sphinx_highlight.js?v=4825356b"></script>
     <script src="../../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../../genindex.html" />
     <link rel="search" title="Search" href="../../../search.html" />
@@ -44,7 +44,9 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../for-dummies/index.html">Icefall for dummies tutorial</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../installation/index.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../docker/index.html">Docker</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../faqs.html">Frequently Asked Questions (FAQs)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../model-export/index.html">Model export</a></li>
 </ul>
@@ -66,12 +68,16 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../Streaming-ASR/index.html">Streaming ASR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../RNN-LM/index.html">RNN-LM</a></li>
 </ul>
 </li>
 </ul>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../../contributing/index.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../huggingface/index.html">Huggingface</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../decoding-with-langugage-models/index.html">Decoding with language models</a></li>
 </ul>
 
         </div>
@@ -103,7 +109,7 @@
              
   <section id="distillation-with-hubert">
 <h1>Distillation with HuBERT<a class="headerlink" href="#distillation-with-hubert" title="Permalink to this heading"></a></h1>
-<p>This tutorial shows you how to perform knowledge distillation in <a href="#id7"><span class="problematic" id="id8">`icefall`_</span></a>
+<p>This tutorial shows you how to perform knowledge distillation in <a class="reference external" href="https://github.com/k2-fsa/icefall">icefall</a>
 with the <a class="reference external" href="https://www.openslr.org/12">LibriSpeech</a> dataset. The distillation method
 used here is called “Multi Vector Quantization Knowledge Distillation” (MVQ-KD).
 Please have a look at our paper <a class="reference external" href="https://arxiv.org/abs/2211.00508">Predicting Multi-Codebook Vector Quantization Indexes for Knowledge Distillation</a>
@@ -119,7 +125,7 @@ encounter any problems, please open an issue here <a class="reference external" 
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>We assume you have read the page <a class="reference internal" href="../../../installation/index.html#install-icefall"><span class="std std-ref">Installation</span></a> and have setup
-the environment for <a href="#id9"><span class="problematic" id="id10">`icefall`_</span></a>.</p>
+the environment for <a class="reference external" href="https://github.com/k2-fsa/icefall">icefall</a>.</p>
 </div>
 <div class="admonition hint">
 <p class="admonition-title">Hint</p>
@@ -145,14 +151,14 @@ options:</p>
 <blockquote>
 <div><ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--stage</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--stop-stage</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--stop_stage</span></code></p></li>
 </ul>
 </div></blockquote>
 <p>to control which stage(s) should be run. By default, all stages are executed.</p>
 <p>For example,</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>egs/librispeech/ASR
-$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">0</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="c1"># run only stage 0</span>
-$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="c1"># run from stage 2 to stage 5</span>
+$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">0</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="c1"># run only stage 0</span>
+$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="c1"># run from stage 2 to stage 5</span>
 </pre></div>
 </div>
 <div class="admonition hint">
@@ -190,7 +196,7 @@ run <a class="reference external" href="https://github.com/k2-fsa/icefall/blob/m
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>There are 5 stages in total, the first and second stage will be automatically skipped
-when choosing to downloaded codebook indexes prepared by <a href="#id11"><span class="problematic" id="id12">`icefall`_</span></a>.
+when choosing to downloaded codebook indexes prepared by <a class="reference external" href="https://github.com/k2-fsa/icefall">icefall</a>.
 Of course, you can extract and compute the codebook indexes by yourself. This
 will require you downloading a HuBERT-XL model and it can take a while for
 the extraction of codebook indexes.</p>
@@ -200,13 +206,13 @@ two options:</p>
 <blockquote>
 <div><ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">--stage</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">--stop-stage</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--stop_stage</span></code></p></li>
 </ul>
 </div></blockquote>
 <p>For example,</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>egs/librispeech/ASR
-$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">0</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="c1"># run only stage 0</span>
-$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="c1"># run from stage 2 to stage 5</span>
+$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">0</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="c1"># run only stage 0</span>
+$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="c1"># run from stage 2 to stage 5</span>
 </pre></div>
 </div>
 <p>Here are a few options in <a class="reference external" href="https://github.com/k2-fsa/icefall/blob/master/egs/librispeech/ASR/distillation_with_hubert.sh">./distillation_with_hubert.sh</a>
@@ -221,7 +227,7 @@ indexes uploaded by us will be downloaded.</p></li>
 experiments, please set <code class="docutils literal notranslate"><span class="pre">full_libri=True</span></code>.</p>
 <p>The following command downloads the pre-computed codebook indexes
 and prepares MVQ-augmented training manifests.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="c1"># run only stage 2</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./distillation_with_hubert.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">2</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="c1"># run only stage 2</span>
 </pre></div>
 </div>
 <p>Please see the
@@ -252,7 +258,7 @@ set <code class="docutils literal notranslate"><span class="pre">use_extracted_c
 <section id="training">
 <h2>Training<a class="headerlink" href="#training" title="Permalink to this heading"></a></h2>
 <p>To perform training, please run stage 3 by executing the following command.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">3</span><span class="w"> </span>--stop-stage<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="c1"># run MVQ training</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./prepare.sh<span class="w"> </span>--stage<span class="w"> </span><span class="m">3</span><span class="w"> </span>--stop_stage<span class="w"> </span><span class="m">3</span><span class="w"> </span><span class="c1"># run MVQ training</span>
 </pre></div>
 </div>
 <p>Here is the code snippet for training:</p>
