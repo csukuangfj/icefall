@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" >
+<html class="writer-html5" lang="en">
 <head>
-  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LODR for RNN Transducer &mdash; icefall 0.1 documentation</title>
-      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
-      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=fa44fd50" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=19f00094" />
+
+  
   <!--[if lt IE 9]>
     <script src="../_static/js/html5shiv.min.js"></script>
   <![endif]-->
@@ -136,7 +138,7 @@ during decoding for transducer model:</p>
 \log p_{rnnt}\left(y_u|\mathit{x},y_{1:u-1}\right) +
 \lambda_1 \log p_{\text{Target LM}}\left(y_u|\mathit{x},y_{1:u-1}\right) -
 \lambda_2 \log p_{\text{bi-gram}}\left(y_u|\mathit{x},y_{1:u-1}\right)\]</div>
-<p>In LODR, an additional bi-gram LM estimated on the source domain (e.g training corpus) is required. Comared to DR,
+<p>In LODR, an additional bi-gram LM estimated on the source domain (e.g training corpus) is required. Compared to DR,
 the only difference lies in the choice of source domain LM. According to the original <a class="reference external" href="https://arxiv.org/abs/2203.16776">paper</a>,
 LODR achieves similar performance compared DR in both intra-domain and cross-domain settings.
 As a bi-gram is much faster to evaluate, LODR is usually much faster.</p>
@@ -236,9 +238,9 @@ indeed <strong>further improves</strong> the WER. We can do even better if we in
 <table class="docutils align-default" id="id1">
 <caption><span class="caption-number">Table 2 </span><span class="caption-text">WER of LODR with different beam sizes</span><a class="headerlink" href="#id1" title="Permalink to this table"></a></caption>
 <colgroup>
-<col style="width: 25%" />
-<col style="width: 25%" />
-<col style="width: 50%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Beam size</p></th>
