@@ -1,9 +1,9 @@
-name: multi_zh-hans
-
+name: gigaspeech
 on:
   push:
     branches:
       - master
+      - refactor-ci
 
   pull_request:
     branches:
@@ -12,11 +12,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: multi_zh-hans-${{ github.ref }}
+  group: gigaspeech-${{ github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: write
 
 jobs:
   generate_build_matrix:
@@ -36,7 +33,7 @@ jobs:
           python ./.github/scripts/docker/generate_build_matrix.py
           MATRIX=$(python ./.github/scripts/docker/generate_build_matrix.py)
           echo "::set-output name=matrix::${MATRIX}"
-  multi_zh-hans:
+  gigaspeech:
     needs: generate_build_matrix
     name: py${{ matrix.python-version }} torch${{ matrix.torch-version }} v${{ matrix.version }}
     runs-on: ubuntu-latest
@@ -46,6 +43,7 @@ jobs:
         ${{ fromJson(needs.generate_build_matrix.outputs.matrix) }}
 
     steps:
+      # refer to https://github.com/actions/checkout
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -59,7 +57,7 @@ jobs:
           echo "pwd: $PWD"
           echo "github.workspace ${{ github.workspace }}"
 
-      - name: Test multi_zh-hans
+      - name: Test gigaspeech
         uses: addnab/docker-run-action@v3
         with:
             image: ghcr.io/${{ github.repository_owner }}/icefall:cpu-py${{ matrix.python-version }}-torch${{ matrix.torch-version }}-v${{ matrix.version }}
@@ -74,7 +72,7 @@ jobs:
               cd /icefall
               git config --global --add safe.directory /icefall
 
-              .github/scripts/multi_zh-hans/ASR/run.sh
+              .github/scripts/gigaspeech/ASR/run.sh
 
       - name: upload model to https://github.com/k2-fsa/sherpa-onnx
         if: matrix.python-version == '3.8' && matrix.torch-version == '1.13.0'
