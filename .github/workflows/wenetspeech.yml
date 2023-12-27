@@ -57,7 +57,7 @@ jobs:
           echo "pwd: $PWD"
           echo "github.workspace ${{ github.workspace }}"
 
-      - name: Test gigaspeech
+      - name: Test wenetspeech
         uses: addnab/docker-run-action@v3
         with:
             image: ghcr.io/${{ github.repository_owner }}/icefall:cpu-py${{ matrix.python-version }}-torch${{ matrix.torch-version }}-v${{ matrix.version }}

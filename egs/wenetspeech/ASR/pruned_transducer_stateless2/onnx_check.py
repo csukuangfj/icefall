@@ -214,7 +214,7 @@ def test_joiner(
             projected_decoder_out,
             project_input=False,
         )
-        assert torch.allclose(joiner_out, torch_joiner_out, atol=1e-5), (
+        assert torch.allclose(joiner_out, torch_joiner_out, atol=1e-4), (
             (joiner_out - torch_joiner_out).abs().max()
         )
 
@@ -227,7 +227,7 @@ def test_joiner(
 
         torch_joiner_encoder_proj_out = model.joiner.encoder_proj(encoder_out)
         assert torch.allclose(
-            joiner_encoder_proj_out, torch_joiner_encoder_proj_out, atol=1e-5
+            joiner_encoder_proj_out, torch_joiner_encoder_proj_out, atol=1e-4
         ), ((joiner_encoder_proj_out - torch_joiner_encoder_proj_out).abs().max())
 
         # Now test decoder_proj

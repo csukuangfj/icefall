@@ -7,7 +7,13 @@ import json
 
 def version_gt(a, b):
     a_major, a_minor = a.split(".")[:2]
+    a_major = int(a_major)
+    a_minor = int(a_minor)
+
     b_major, b_minor = b.split(".")[:2]
+    b_major = int(b_major)
+    b_minor = int(b_minor)
+
     if a_major > b_major:
         return True
 

@@ -24,15 +24,15 @@ function test_pruned_transducer_stateless2() {
   cd ../data/lang_bpe_500/
   git lfs pull --include bpe.model
 
-  wget https://raw.githubusercontent.com/k2-fsa/sherpa/master/scripts/bpe_model_to_tokens.py
+  wget -q https://raw.githubusercontent.com/k2-fsa/sherpa/master/scripts/bpe_model_to_tokens.py
   python3 ./bpe_model_to_tokens.py ./bpe.model > tokens.txt
   ls -lh
   cd ../..
   mkdir test_wavs
   cd test_wavs
-  wget https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1089-134686-0001.wav
-  wget https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1221-135766-0001.wav
-  wget https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1221-135766-0002.wav
+  wget -q https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1089-134686-0001.wav
+  wget -q https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1221-135766-0001.wav
+  wget -q https://huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless7-2022-11-11/resolve/main/test_wavs/1221-135766-0002.wav
   popd
 
   for sym in 1 2 3; do
