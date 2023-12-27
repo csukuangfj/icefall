@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - refactor-ci
 
   pull_request:
     branches:
@@ -66,6 +67,8 @@ jobs:
             options: |
               --volume ${{ github.workspace }}/:/icefall
               --env HF_TOKEN=${{ secrets.HF_TOKEN }}
+              --env PYTHON_VERSION=${{ matrix.python-version }}
+              --env TORCH_VERSION=${{ matrix.torch-version }}
             shell: bash
             run: |
               export PYTHONPATH=/icefall:$PYTHONPATH
@@ -75,6 +78,7 @@ jobs:
               .github/scripts/multi_zh-hans/ASR/run.sh
 
       - name: upload model to https://github.com/k2-fsa/sherpa-onnx
+        if: matrix.python-version == '3.8' && matrix.torch-version == '1.13.0'
         uses: svenstaro/upload-release-action@v2
         with:
           file_glob: true

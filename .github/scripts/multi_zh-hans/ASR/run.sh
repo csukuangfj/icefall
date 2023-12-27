@@ -84,7 +84,10 @@ function test_zipformer_ctc_streaming_2023_11_05() {
   file bpe.model
   git status
   git add .
-  git commit -m "upload model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+
+  if [[ $PYTHON_VERSION == '3.8' && $TORCH_VERSION == '1.13.0' ]]; then
+    git commit -m "upload model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+  fi
 
   log "Upload models to https://github.com/k2-fsa/sherpa-onnx"
   rm -rf .git
@@ -146,7 +149,10 @@ function test_zipformer_ctc_streaming_2023_11_05() {
   cd $dst
   git lfs track "*.onnx" bpe.model
   git add .
-  git commit -m "upload model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+
+  if [[ $PYTHON_VERSION == '3.8' && $TORCH_VERSION == '1.13.0' ]]; then
+    git commit -m "upload model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+  fi
 
   log "Upload models to https://github.com/k2-fsa/sherpa-onnx"
   rm -rf .git
