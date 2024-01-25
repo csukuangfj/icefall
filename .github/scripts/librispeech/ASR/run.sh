@@ -2,6 +2,10 @@
 
 set -ex
 
+git config --global user.name "k2-fsa"
+git config --global user.email "csukuangfj@gmail.com"
+git config --global lfs.allowincompletepush true
+
 log() {
   # This function is from espnet
   local fname=${BASH_SOURCE[1]##*/}
@@ -930,6 +934,12 @@ function test_pruned_transducer_stateless3_2022_05_13() {
     --avg 1 \
     --jit 1
 
+  pushd $repo/exp
+  git status .
+  git add cpu_jit.pt
+  git commit -m "update model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+  popd
+
   ./pruned_transducer_stateless3/export.py \
     --exp-dir $repo/exp \
     --tokens $repo/data/lang_bpe_500/tokens.txt \
@@ -1577,6 +1587,7 @@ function test_transducer_bpe_500_2021_12_23() {
 
 prepare_data
 run_diagnostics
+test_pruned_transducer_stateless3_2022_05_13
 test_pruned_transducer_stateless_2022_03_12
 test_pruned_transducer_stateless2_2022_04_29
 test_pruned_transducer_stateless3_2022_04_29
@@ -1589,7 +1600,6 @@ test_pruned_transducer_stateless7_streaming_2022_12_29
 test_pruned_transducer_stateless7_ctc_bs_2023_01_29
 test_conformer_ctc3_2022_11_27
 test_lstm_transducer_stateless2_2022_09_03
-test_pruned_transducer_stateless3_2022_05_13
 test_streaming_pruned_transducer_stateless2_20220625
 test_streaming_zipformer_2023_05_17
 test_zipformer_2023_05_18
