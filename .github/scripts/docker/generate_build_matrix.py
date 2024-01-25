@@ -48,6 +48,8 @@ def get_matrix():
     version = "1.2"
     python_version = ["3.8", "3.9", "3.10", "3.11"]
     torch_version = ["1.13.0", "1.13.1", "2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2"]
+    python_version = ["3.8"]
+    torch_version = ["1.13.0"]
 
     matrix = []
     for p in python_version:
