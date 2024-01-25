@@ -8,6 +8,13 @@ import json
 def version_gt(a, b):
     a_major, a_minor = a.split(".")[:2]
     b_major, b_minor = b.split(".")[:2]
+
+    a_major = int(a_major)
+    a_minor = int(a_minor)
+
+    b_major = int(b_major)
+    b_minor = int(b_minor)
+
     if a_major > b_major:
         return True
 
@@ -48,12 +55,14 @@ def get_matrix():
     version = "1.2"
     python_version = ["3.8", "3.9", "3.10", "3.11"]
     torch_version = ["1.13.0", "1.13.1", "2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2"]
+
     python_version = ["3.8"]
     torch_version = ["1.13.0"]
 
     matrix = []
     for p in python_version:
         for t in torch_version:
+            print(p, t)
             # torchaudio <= 1.13.x supports only python <= 3.10
 
             if version_gt(p, "3.10") and not version_gt(t, "2.0"):
