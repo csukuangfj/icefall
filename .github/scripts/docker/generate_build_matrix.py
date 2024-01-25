@@ -62,7 +62,6 @@ def get_matrix():
     matrix = []
     for p in python_version:
         for t in torch_version:
-            print(p, t)
             # torchaudio <= 1.13.x supports only python <= 3.10
 
             if version_gt(p, "3.10") and not version_gt(t, "2.0"):
