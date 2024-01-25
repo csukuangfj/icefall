@@ -934,11 +934,13 @@ function test_pruned_transducer_stateless3_2022_05_13() {
     --avg 1 \
     --jit 1
 
-  pushd $repo/exp
-  git status .
-  git add cpu_jit.pt
-  git commit -m "update model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
-  popd
+  if [[ x"$TORCH_VERSION" == x"1.13.0" ]]; then
+    pushd $repo/exp
+    git status .
+    git add cpu_jit.pt
+    git commit -m "update model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+    popd
+  fi
 
   ./pruned_transducer_stateless3/export.py \
     --exp-dir $repo/exp \
