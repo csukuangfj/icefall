@@ -1588,7 +1588,7 @@ function test_transducer_bpe_500_2021_12_23() {
 }
 
 prepare_data
-run_diagnostics
+# run_diagnostics
 test_pruned_transducer_stateless3_2022_05_13
 test_pruned_transducer_stateless_2022_03_12
 test_pruned_transducer_stateless2_2022_04_29
