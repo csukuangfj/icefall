@@ -937,7 +937,7 @@ function test_pruned_transducer_stateless3_2022_05_13() {
     pushd $repo/exp
     git status .
     git add cpu_jit.pt
-    git commit -m "update model" && git push https://k2-fsa:${HF_TOKEN}@huggingface.co/k2-fsa/$dst main || true
+    git commit -m "update model" && git push https://csukuangfj:${HF_TOKEN}@huggingface.co/csukuangfj/icefall-asr-librispeech-pruned-transducer-stateless3-2022-05-13 main || true
     popd
 
   ./pruned_transducer_stateless3/export.py \
