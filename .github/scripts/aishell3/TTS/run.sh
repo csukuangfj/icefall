@@ -6,6 +6,7 @@ python3 -m pip install piper_phonemize -f https://k2-fsa.github.io/icefall/piper
 python3 -m pip install numba
 python3 -m pip install pypinyin
 python3 -m pip install cython
+python3 -m pip install --only-binary :all: pynini
 
 apt-get update
 apt-get install -y jq
@@ -19,7 +20,6 @@ log() {
 cd egs/aishell3/TTS
 
 sed -i.bak s/1000/10/g ./prepare.sh
-
 
 function download_data() {
   mkdir download

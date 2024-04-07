@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master
-      - tts-aishell3
+      - tts-aishell3-2
 
   pull_request:
     branches:

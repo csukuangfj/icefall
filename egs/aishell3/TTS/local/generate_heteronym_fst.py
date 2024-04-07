@@ -7,11 +7,13 @@ words and phrases.
 """
 
 import functools
+import logging
+from pathlib import Path
 
 import pynini
 from pynini import cdrewrite
 from pynini.lib import utf8
-from pypinyin import phrases_dict, pinyin_dict
+from pypinyin import phrases_dict
 
 
 def main():
@@ -19,15 +21,38 @@ def main():
 
     phrases = phrases_dict.phrases_dict
 
-    if False:
+    if True:
         phrases_map = []
         for p in phrases:
             phrases_map.append([p, f"#$|{p}|$#"])
-        phrases_map = phrases_map[:1000]
-        logging.info(f"number of phrases: {len(phrases_map)}")
-        fst = pynini.string_map(phrases_map)
-        fst = fst.optimize()
-        rule = cdrewrite(fst, "", "", sigma)
+
+        num = len(phrases_map)
+        logging.info(f"number of phrases: {num}")
+        chunk_len = 1000
+        num_chunks = (num + chunk_len - 1) // chunk_len
+        start = 0
+
+        for i in range(num_chunks):
+            filename = f"heteronym_{i}.fst"
+            if Path(filename).is_file():
+                continue
+
+            logging.info(f"Processing chunk {i}/{num_chunks}")
+            start = i * chunk_len
+            end = start + chunk_len
+
+            this_chunk = phrases_map[start:end]
+            logging.info(f"This chunk len: {len(this_chunk)}")
+            fst = pynini.string_map(this_chunk)
+            fst = fst.optimize()
+            rule = cdrewrite(fst, "", "", sigma)
+
+            logging.info(f"Saving to {filename}")
+            rule.write(filename)
+        logging.info(
+            "\nHint: You can use\n\n\tfarcreate *.fst rule.far\n\n"
+            "to combine all FSTs into a single FST archive file rule.far"
+        )
     else:
         # this branch runs very slowly
         fst_list = []
@@ -40,14 +65,14 @@ def main():
         fst = fst.optimize()
         rule = cdrewrite(fst, "", "", sigma)
 
-    rule = generate_heteronym_rule_fst()
-    rule.write(args.heteronym_fst)
-
-    return rule
+        filename = "heteronym.fst"
+        logging.info(f"Saving to {filename}")
+        rule.write(filename)
 
 
 if __name__ == "__main__":
     formatter = "%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s"
 
     logging.basicConfig(format=formatter, level=logging.INFO)
+    logging.info("Started! May take 1 hour and 24 minutes")
     main()
