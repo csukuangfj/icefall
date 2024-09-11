@@ -85,6 +85,7 @@ repo=$(basename $repo_url)
 
 pushd $repo
 git lfs pull --include "exp/pretrained.pt"
+git lfs pull --include "data/lang_bpe_500/bpe.model"
 
 cd exp
 ln -s pretrained.pt epoch-99.pt
@@ -112,18 +113,38 @@ log "Test export streaming model to ONNX format"
   --joiner-dim 512 \
   --causal True \
   --chunk-size 16 \
-  --left-context-frames 64
+  --left-context-frames 128
 
 ls -lh $repo/exp
 
 log "Run onnx_pretrained-streaming.py"
 
 ./zipformer/onnx_pretrained-streaming.py \
-  --encoder-model-filename $repo/exp/encoder-epoch-99-avg-1-chunk-16-left-64.onnx \
-  --decoder-model-filename $repo/exp/decoder-epoch-99-avg-1-chunk-16-left-64.onnx \
-  --joiner-model-filename $repo/exp/joiner-epoch-99-avg-1-chunk-16-left-64.onnx \
+  --encoder-model-filename $repo/exp/encoder-epoch-99-avg-1-chunk-16-left-128.onnx \
+  --decoder-model-filename $repo/exp/decoder-epoch-99-avg-1-chunk-16-left-128.onnx \
+  --joiner-model-filename $repo/exp/joiner-epoch-99-avg-1-chunk-16-left-128.onnx \
   --tokens $repo/data/lang_bpe_500/tokens.txt \
   $repo/test_wavs/1089-134686-0001.wav
+
+d=sherpa-onnx-streaming-zipformer-en-2023-06-26
+mkdir $d
+
+cp -v $repo/exp/*.onnx $d
+cp -v $repo/data/lang_bpe_500/tokens.txt $d
+cp -v $repo/data/lang_bpe_500/bpe.model $d
+mkdir $d/test_wavs
+pushd $d/test_wavs
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/0.wav
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/1.wav
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/8k.wav
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/trans.txt
+ls -lh
+popd
+
+tar cjfv $d.tar.bz2 $d
+mkdir -p /tmp/models
+mv $d.tar.bz2 /tmp/models/
+rm -rf $d
 
 rm -rf $repo
 

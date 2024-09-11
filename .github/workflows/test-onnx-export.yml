@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   test_onnx_export:
-    if: github.event.label.name == 'ready' || github.event.label.name == 'onnx' || github.event_name == 'push' || github.event_name == 'schedule'
+    if: github.event.label.name == 'ready' || github.event.label.name == 'onnx' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -75,3 +75,13 @@ jobs:
           export PYTHONPATH=~/tmp/kaldifeat/build/lib:$PYTHONPATH
 
           .github/scripts/test-onnx-export.sh
+
+      - name: upload model to https://github.com/k2-fsa/sherpa-onnx
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: /tmp/models/*.tar.bz2
+          overwrite: true
+          repo_name: k2-fsa/sherpa-onnx
+          repo_token: ${{ secrets.UPLOAD_GH_SHERPA_ONNX_TOKEN }}
+          tag: asr-models
