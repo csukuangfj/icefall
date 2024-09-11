@@ -8,6 +8,64 @@ log() {
   echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
+log "=========================================================================="
+log " keyword spotting "
+pushd egs/wenetspeech/KWS
+
+curl -SL -O https://github.com/pkufool/keyword-spotting-models/releases/download/v0.11/icefall-kws-zipformer-wenetspeech-20240219.tar.gz
+tar xvf icefall-kws-zipformer-wenetspeech-20240219.tar.gz
+rm icefall-kws-zipformer-wenetspeech-20240219.tar.gz
+repo=icefall-kws-zipformer-wenetspeech-20240219
+
+pushd $repo/exp
+ln -s pretrained.pt epoch-99.pt
+popd
+
+./zipformer/export-onnx-streaming.py \
+  --tokens ./icefall-kws-zipformer-wenetspeech-20240219/data/lang_partial_tone/tokens.txt \
+  --exp-dir ./icefall-kws-zipformer-wenetspeech-20240219/exp \
+  --epoch 99 \
+  --avg 1 \
+  --use-averaged-model 0 \
+  \
+  --num-encoder-layers "1,1,1,1,1,1" \
+  --downsampling-factor "1,2,4,8,4,2" \
+  --feedforward-dim "192,192,192,192,192,192" \
+  --num-heads "4,4,4,8,4,4" \
+  --encoder-dim "128,128,128,128,128,128" \
+  --query-head-dim 32 \
+  --value-head-dim 12 \
+  --pos-head-dim 4 \
+  --pos-dim 48 \
+  --encoder-unmasked-dim "128,128,128,128,128,128" \
+  --cnn-module-kernel "31,31,15,15,15,31" \
+  --decoder-dim 320 \
+  --joiner-dim 320 \
+  --causal True \
+  --chunk-size 16 \
+  --left-context-frames 64
+
+curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
+tar xvf sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
+rm sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2
+d=sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01
+
+for m in encoder decoder joiner; do
+  cp -v $repo/exp/$m-epoch-99-avg-1-chunk-16-left-64.int8.onnx $d/$m-epoch-12-avg-2-chunk-16-left-64.int8.onnx
+  cp -v $repo/exp/$m-epoch-99-avg-1-chunk-16-left-64.onnx $d/$m-epoch-12-avg-2-chunk-16-left-64.onnx
+done
+
+tar cjfv $d.tar.bz2 $d
+rm -rf $d
+mkdir -p /tmp/kws-models
+mv $d.tar.bz2 /tmp/kws-models
+
+rm -rf $repo
+
+popd
+
+log "--------------------------------------------------------------------------"
+
 cd egs/librispeech/ASR
 
 log "=========================================================================="
@@ -139,11 +197,14 @@ curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en
 curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/8k.wav
 curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/test_wavs/trans.txt
 ls -lh
+cd ..
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/README.md
+curl -SL -O https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/export-onnx-zipformer-online.sh
 popd
 
 tar cjfv $d.tar.bz2 $d
-mkdir -p /tmp/models
-mv $d.tar.bz2 /tmp/models/
+mkdir -p /tmp/asr-models
+mv $d.tar.bz2 /tmp/asr-models/
 rm -rf $d
 
 rm -rf $repo
