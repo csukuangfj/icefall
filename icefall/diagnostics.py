@@ -73,7 +73,7 @@ def get_tensor_stats(
     """
 
     if stats_type == "rms-sort":
-        rms = (x ** 2).mean(dim=dim)
+        rms = (x ** 2).mean(dim=dim).sqrt()
         rms = rms.flatten()
         rms = rms.sort()[0]
         rms = rms[ (torch.arange(11) * rms.numel() // 10).clamp(max=rms.numel() - 1) ]
