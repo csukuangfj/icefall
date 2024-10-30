@@ -123,16 +123,7 @@ class BatchedOptimizer(Optimizer):
 
 
 def basic_step(group, p, state, grad):
-    # computes the moving-average squared gradient and divides by
-    # it; includes adaptive epsilon. (?)
-    # takes a step in the gradient direction and
-    # returns it (times the lr).
-    delta = param_rms * basic_step(group, p, state, grad)
-    # on some batches, update size of parameter.
-    return delta
-
-def basic_step(group, p, state, grad):
-    # computes basic Adam update using beta2 only.
+    # computes basic Adam update using beta2 (dividing by gradient stddev) only.  no momentum yet.
     lr = group["lr"]
     if p.numel() == p.shape[0]:
         lr = lr * group["scalar_lr_scale"]
@@ -150,7 +141,11 @@ def basic_step(group, p, state, grad):
     # bias_correction2 is like in Adam.
     # slower update at the start will help stability anyway.
     bias_correction2 = 1 - beta2 ** (state["step"] + 1)
-    denom = (exp_avg_sq / bias_correction2).sqrt() + eps
+    if bias_correction2 < 0.99:
+        # note: not in-place.
+        exp_avg_sq = exp_avg_sq * (1.0 / bias_correction2)
+    denom = exp_avg_sq.sqrt().add_(eps)
+
     return -lr * grad / denom
 
 
@@ -192,16 +187,17 @@ def scaling_step(group, p, state, grad):
             (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
         )
 
+    param_min_rms = group["param_min_rms"]
+
     # scale the step size by param_rms.  This is the most important "scaling" part of
     # ScaledAdam
-    delta = delta * param_rms
+    delta *= param_rms.clamp(min=param_min_rms)
 
     if step % size_update_period == size_update_period - 1 and step > 0:
         # This block updates the size of parameter by adding a step ("delta") value in
         # the direction of either shrinking or growing it.
         beta2 = group["betas"][1]
         size_lr = group["lr"] * group["scalar_lr_scale"]
-        param_min_rms = group["param_min_rms"]
         param_max_rms = group["param_max_rms"]
         eps = group["eps"]
         batch_size = p.shape[0]
@@ -228,6 +224,10 @@ def scaling_step(group, p, state, grad):
         # when the param gets too small, just don't shrink it any further.
         scale_step.masked_fill_(is_too_small, 0.0)
 
+        # The following may help prevent instability: don't allow the scale step to be too large in
+        # either direction.
+        scale_step.clamp_(min=-0.1, max=0.1)
+
         # and ensure the parameter rms after update never exceeds param_max_rms.
         # We have to look at the trained model for parameters at or around the
         # param_max_rms, because sometimes they can indicate a problem with the
@@ -253,7 +253,6 @@ def momentum_step(group, p, state, grad):
     # an edge effect that affects the first 10 or so batches; and the effect of not doing it
     # is just to do a slower update for the first few batches, which will help stability.
     return stored_delta
-
 
 
 
@@ -495,59 +494,17 @@ class ScaledAdam(BatchedOptimizer):
                         state["step"] = 0
                         cur_step = 0
 
-                    grad = (p.grad if clipping_scale == 1.0 else p.grad * clipping_scale)
+                    grad = (p.grad if clipping_scale == 1.0 else p.grad.mul_(clipping_scale))
                     p += momentum_step(group, p.detach(), state, grad)
+
+                    if p.numel() == p.shape[0]:  # scalar parameter
+                        scalar_max = group["scalar_max"]
+                        p.clamp_(min=-scalar_max, max=scalar_max)
 
                     state["step"] = cur_step + 1
 
 
-                    #self._step_one_batch(group, p, state, clipping_scale)
-
         return loss
-
-    def _init_state(self, group: dict, p: Tensor, state: dict):
-        """
-        Initializes state dict for parameter 'p'.  Assumes that dim 0 of tensor p
-        is actually the batch dimension, corresponding to batched-together
-        parameters of a given shape.
-
-
-        Args:
-           group:   Dict to look up configuration values.
-               p: The parameter that we are initializing the state for
-           state: Dict from string to whatever state we are initializing
-        """
-        size_update_period = group["size_update_period"]
-
-        state["step"] = 0
-
-        kwargs = {"device": p.device, "dtype": p.dtype}
-
-        # 'delta' implements conventional momentum.  There are
-        # several different kinds of update going on, so rather than
-        # compute "exp_avg" like in Adam, we store and decay a
-        # parameter-change "delta", which combines all forms of
-        # update.  this is equivalent to how it's done in Adam,
-        # except for the first few steps.
-        state["delta"] = torch.zeros_like(p, memory_format=torch.preserve_format)
-
-        batch_size = p.shape[0]
-        numel = p.numel() // batch_size
-
-        if numel > 1:
-            # "param_rms" just periodically records the scalar root-mean-square value of
-            # the parameter tensor.
-            # it has a shape like (batch_size, 1, 1, 1, 1)
-            param_rms = (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
-            state["param_rms"] = param_rms
-
-            state["scale_exp_avg_sq"] = torch.zeros_like(param_rms)
-            state["scale_grads"] = torch.zeros(
-                size_update_period, *param_rms.shape, **kwargs
-            )
-
-        # exp_avg_sq is the weighted sum of scaled gradients. as in Adam.
-        state["exp_avg_sq"] = torch.zeros_like(p, memory_format=torch.preserve_format)
 
     def _get_clipping_scale(
         self, group: dict, tuples: List[Tuple[Tensor, dict, List[str]]]
@@ -726,182 +683,6 @@ class ScaledAdam(BatchedOptimizer):
             f" orig_rms_sq={(dominant_rms**2).item():.3e}"
         )
 
-    def _step_one_batch(
-        self, group: dict, p: Tensor, state: dict, clipping_scale: float
-    ):
-        """
-        Do the step for one parameter, which is actually going to be a batch of
-        `real` parameters, with dim 0 as the batch dim.
-        Args:
-                  group:  dict to look up configuration values
-                    p: parameter to update (actually multiple parameters stacked together
-                       as a batch)
-                  state: state-dict for p, to look up the optimizer state
-        """
-        lr = group["lr"]
-        size_update_period = group["size_update_period"]
-        beta1 = group["betas"][0]
-
-        grad = p.grad
-        if clipping_scale != 1.0:
-            grad *= clipping_scale
-        step = state["step"]
-        delta = state["delta"]
-
-        delta.mul_(beta1)
-        batch_size = p.shape[0]
-        numel = p.numel() // batch_size
-        if numel > 1:
-            # Update the size/scale of p, and set param_rms
-            scale_grads = state["scale_grads"]
-            scale_grads[step % size_update_period] = (p * grad).sum(
-                dim=list(range(1, p.ndim)), keepdim=True
-            )
-            if step % size_update_period == size_update_period - 1:
-                param_rms = state["param_rms"]  # shape: (batch_size, 1, 1, ..)
-                param_rms.copy_(
-                    (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
-                )
-                if step > 0:
-                    # self._size_update() learns the overall scale on the
-                    # parameter, by shrinking or expanding it.
-                    self._size_update(group, scale_grads, p, state)
-
-        if numel == 1:
-            # For parameters with 1 element we just use regular Adam.
-            # Updates delta.
-            self._step_scalar(group, p, state)
-        else:
-            self._step(group, p, state)
-
-        state["step"] = step + 1
-
-    def _size_update(
-        self, group: dict, scale_grads: Tensor, p: Tensor, state: dict
-    ) -> None:
-        """
-               Called only where p.numel() > 1, this updates the scale of the parameter.
-               If we imagine: p =  underlying_param * scale.exp(), and we are doing
-               gradient descent on underlying param and on scale, this function does the update
-               on `scale`.
-
-               Args:
-              group: dict to look up configuration values
-        scale_grads: a tensor of shape (size_update_period, batch_size, 1, 1,...) containing
-                      grads w.r.t. the scales.
-                  p:  The parameter to update
-               state: The state-dict of p
-        """
-
-        param_rms = state["param_rms"]
-        beta1, beta2 = group["betas"]
-        size_lr = group["lr"] * group["scalar_lr_scale"]
-        param_min_rms = group["param_min_rms"]
-        param_max_rms = group["param_max_rms"]
-        eps = group["eps"]
-        step = state["step"]
-        batch_size = p.shape[0]
-
-        size_update_period = scale_grads.shape[0]
-        # correct beta2 for the size update period: we will have
-        # faster decay at this level.
-        beta2_corr = beta2**size_update_period
-
-        scale_exp_avg_sq = state["scale_exp_avg_sq"]  # shape: (batch_size, 1, 1, ..)
-        scale_exp_avg_sq.mul_(beta2_corr).add_(
-            (scale_grads**2).mean(dim=0),  # mean over dim `size_update_period`
-            alpha=1 - beta2_corr,
-        )  # shape is (batch_size, 1, 1, ...)
-
-        # The 1st time we reach here is when size_step == 1.
-        size_step = (step + 1) // size_update_period
-        bias_correction2 = 1 - beta2_corr**size_step
-        # we don't bother with bias_correction1; this will help prevent divergence
-        # at the start of training.
-
-        denom = scale_exp_avg_sq.sqrt() + eps
-
-        scale_step = (
-            -size_lr * (bias_correction2**0.5) * scale_grads.sum(dim=0) / denom
-        )
-
-        is_too_small = param_rms < param_min_rms
-
-        # when the param gets too small, just don't shrink it any further.
-        scale_step.masked_fill_(is_too_small, 0.0)
-
-        # and ensure the parameter rms after update never exceeds param_max_rms.
-        # We have to look at the trained model for parameters at or around the
-        # param_max_rms, because sometimes they can indicate a problem with the
-        # topology or settings.
-        scale_step = torch.minimum(scale_step, (param_max_rms - param_rms) / param_rms)
-
-        delta = state["delta"]
-        # the factor of (1-beta1) relates to momentum.
-        delta.add_(p * scale_step, alpha=(1 - beta1))
-
-    def _step(self, group: dict, p: Tensor, state: dict):
-        """
-        This function does the core update of self.step(), in the case where the members of
-        the batch have more than 1 element.
-
-        Args:
-            group: A dict which will be used to look up configuration values
-                p: The parameter to be updated
-             grad: The grad of p
-            state: The state-dict corresponding to parameter p
-
-        This function modifies p.
-        """
-        grad = p.grad
-        lr = group["lr"]
-        beta1, beta2 = group["betas"]
-        eps = group["eps"]
-        param_min_rms = group["param_min_rms"]
-        step = state["step"]
-
-        exp_avg_sq = state["exp_avg_sq"]
-        exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=(1 - beta2))
-
-        this_step = state["step"] - (state["zero_step"] if "zero_step" in state else 0)
-        bias_correction2 = 1 - beta2 ** (this_step + 1)
-        if bias_correction2 < 0.99:
-            # note: not in-place.
-            exp_avg_sq = exp_avg_sq * (1.0 / bias_correction2)
-
-        denom = exp_avg_sq.sqrt()
-        denom += eps
-        grad = grad / denom
-
-        alpha = -lr * (1 - beta1) * state["param_rms"].clamp(min=param_min_rms)
-
-        delta = state["delta"]
-        delta.add_(grad * alpha)
-        p.add_(delta)
-
-    def _step_scalar(self, group: dict, p: Tensor, state: dict):
-        """
-        A simplified form of the core update for scalar tensors, where we cannot get a good
-        estimate of the parameter rms.
-        """
-        beta1, beta2 = group["betas"]
-        scalar_max = group["scalar_max"]
-        eps = group["eps"]
-        lr = group["lr"] * group["scalar_lr_scale"]
-        grad = p.grad
-
-        exp_avg_sq = state["exp_avg_sq"]  # shape: (batch_size,)
-        exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
-
-        # bias_correction2 is like in Adam.  Don't bother with bias_correction1;
-        # slower update at the start will help stability anyway.
-        bias_correction2 = 1 - beta2 ** (state["step"] + 1)
-        denom = (exp_avg_sq / bias_correction2).sqrt() + eps
-
-        delta = state["delta"]
-        delta.add_(grad / denom, alpha=-lr * (1 - beta1))
-        p.clamp_(min=-scalar_max, max=scalar_max)
-        p.add_(delta)
 
 
 class LRScheduler(object):
