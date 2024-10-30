@@ -121,6 +121,141 @@ class BatchedOptimizer(Optimizer):
                 p.copy_(stacked_params[i])
 
 
+
+def basic_step(group, p, state, grad):
+    # computes the moving-average squared gradient and divides by
+    # it; includes adaptive epsilon. (?)
+    # takes a step in the gradient direction and
+    # returns it (times the lr).
+    delta = param_rms * basic_step(group, p, state, grad)
+    # on some batches, update size of parameter.
+    return delta
+
+def basic_step(group, p, state, grad):
+    # computes basic Adam update using beta2 only.
+    lr = group["lr"]
+    if p.numel() == p.shape[0]:
+        lr = lr * group["scalar_lr_scale"]
+    beta2 = group["betas"][1]
+    eps = group["eps"]
+    # p shape: (batch_size,) or (batch_size, 1, [1,..])
+    try:
+        exp_avg_sq = state["exp_avg_sq"]  # shape: (batch_size,) or (batch_size, 1, [1,..])
+    except KeyError:
+        exp_avg_sq = torch.zeros(*p.shape, device=p.device, dtype=torch.float)
+
+    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+
+    # bias_correction2 is like in Adam.
+    # slower update at the start will help stability anyway.
+    bias_correction2 = 1 - beta2 ** (state["step"] + 1)
+    denom = (exp_avg_sq / bias_correction2).sqrt() + eps
+    return -lr * grad / denom
+
+
+def scaling_step(group, p, state, grad):
+    delta = basic_step(group, p, state, grad)
+    if p.numel() == p.shape[0]:
+        return delta  # there is no scaling for scalar parameters.  (p.shape[0] is the batch of parameters.)
+
+    step = state["step"]
+    size_update_period = group["size_update_period"]
+
+    try:
+        param_rms = state["param_rms"]
+        scale_grads = state["scale_grads"]
+        scale_exp_avg_sq = state["scale_exp_avg_sq"]
+    except KeyError:
+        # we know p.ndim > 1 because we'd have returned above if not, so don't worry
+        # about the speial case of dim=[] that pytorch treats inconsistently.
+        param_rms = (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
+        param_rms = param_rms.to(torch.float)
+        scale_exp_avg_sq = torch.zeros_like(param_rms)
+        scale_grads = torch.zeros(size_update_period, *param_rms.shape,
+                                  dtype=torch.float, device=p.device)
+        state["param_rms"] = param_rms
+        state["scale_exp_avg_sq"] = scale_exp_avg_sq
+        state["scale_grads"] = scale_grads
+
+
+    # on every step, update the gradient w.r.t. the scale of the parameter, we
+    # store these as a batch and periodically update the size (for speed only, to
+    # avoid too many operations).
+    scale_grads[step % size_update_period] = (p * grad).sum(
+        dim=list(range(1, p.ndim)), keepdim=True
+    )
+
+    # periodically recompute the value of param_rms.
+    if step % size_update_period == size_update_period - 1:
+        param_rms.copy_(
+            (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
+        )
+
+    # scale the step size by param_rms.  This is the most important "scaling" part of
+    # ScaledAdam
+    delta = delta * param_rms
+
+    if step % size_update_period == size_update_period - 1 and step > 0:
+        # This block updates the size of parameter by adding a step ("delta") value in
+        # the direction of either shrinking or growing it.
+        beta2 = group["betas"][1]
+        size_lr = group["lr"] * group["scalar_lr_scale"]
+        param_min_rms = group["param_min_rms"]
+        param_max_rms = group["param_max_rms"]
+        eps = group["eps"]
+        batch_size = p.shape[0]
+        # correct beta2 for the size update period: we will have
+        # faster decay at this level.
+        beta2_corr = beta2**size_update_period
+        scale_exp_avg_sq.mul_(beta2_corr).add_(
+            (scale_grads**2).mean(dim=0),  # mean over dim `size_update_period`
+            alpha=1 - beta2_corr,
+        )  # shape is (batch_size, 1, 1, ...)
+
+        # The 1st time we reach here is when size_step == 1.
+        size_step = (step + 1) // size_update_period
+        bias_correction2 = 1 - beta2_corr**size_step
+
+        denom = scale_exp_avg_sq.sqrt() + eps
+
+        scale_step = (
+            -size_lr * (bias_correction2**0.5) * scale_grads.sum(dim=0) / denom
+        )
+
+        is_too_small = param_rms < param_min_rms
+
+        # when the param gets too small, just don't shrink it any further.
+        scale_step.masked_fill_(is_too_small, 0.0)
+
+        # and ensure the parameter rms after update never exceeds param_max_rms.
+        # We have to look at the trained model for parameters at or around the
+        # param_max_rms, because sometimes they can indicate a problem with the
+        # topology or settings.
+        scale_step = torch.minimum(scale_step, (param_max_rms - param_rms) / param_rms)
+
+        delta.add_(p * scale_step)
+
+    return delta
+
+
+def momentum_step(group, p, state, grad):
+    delta = scaling_step(group, p, state, grad)
+    beta1 = group["betas"][0]
+    try:
+        stored_delta = state["delta"]
+    except KeyError:
+        stored_delta = torch.zeros(*p.shape, device=p.device, dtype=torch.float)
+        state["delta"] = stored_delta
+    stored_delta.mul_(beta1)
+    stored_delta.add_(delta, alpha=(1-beta1))
+    # we don't bother doing the "bias correction" part of Adam for beta1 because this is just
+    # an edge effect that affects the first 10 or so batches; and the effect of not doing it
+    # is just to do a slower update for the first few batches, which will help stability.
+    return stored_delta
+
+
+
+
 class ScaledAdam(BatchedOptimizer):
     """
      Implements 'Scaled Adam', a variant of Adam where we scale each parameter's update
@@ -147,8 +282,7 @@ class ScaledAdam(BatchedOptimizer):
                    by this quantity.
             betas: beta1,beta2 are momentum constants for regular momentum, and moving sum-sq grad.
                    Must satisfy 0 < beta <= beta2 < 1.
-     scalar_lr_scale: A scaling factor on the learning rate, that we use to update the
-                   scale of each parameter tensor and scalar parameters of the mode..
+     scalar_lr_scale: A scaling factor on the learning rate, that we use to update the                   scale of each parameter tensor and scalar parameters of the mode..
                    If each parameter were decomposed
                    as p * p_scale.exp(), where (p**2).mean().sqrt() == 1.0, scalar_lr_scale
                    would be a the scaling factor on the learning rate of p_scale.
@@ -355,8 +489,22 @@ class ScaledAdam(BatchedOptimizer):
                     # State initialization
                     if len(state) == 0:
                         self._init_state(group, p, state)
+                        # TODO: remove this.
 
-                    self._step_one_batch(group, p, state, clipping_scale)
+
+                    try:
+                        cur_step = state["step"]
+                    except KeyError:
+                        state["step"] = 0
+                        cur_step = 0
+
+                    grad = (p.grad if clipping_scale == 1.0 else p.grad * clipping_scale)
+                    p += momentum_step(group, p.detach(), state, grad)
+
+                    state["step"] = cur_step + 1
+
+
+                    #self._step_one_batch(group, p, state, clipping_scale)
 
         return loss
 
