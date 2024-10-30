@@ -143,6 +143,7 @@ def basic_step(group, p, state, grad):
         exp_avg_sq = state["exp_avg_sq"]  # shape: (batch_size,) or (batch_size, 1, [1,..])
     except KeyError:
         exp_avg_sq = torch.zeros(*p.shape, device=p.device, dtype=torch.float)
+        state["exp_avg_sq"] = exp_avg_sq
 
     exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
@@ -174,8 +175,8 @@ def scaling_step(group, p, state, grad):
         scale_grads = torch.zeros(size_update_period, *param_rms.shape,
                                   dtype=torch.float, device=p.device)
         state["param_rms"] = param_rms
-        state["scale_exp_avg_sq"] = scale_exp_avg_sq
         state["scale_grads"] = scale_grads
+        state["scale_exp_avg_sq"] = scale_exp_avg_sq
 
 
     # on every step, update the gradient w.r.t. the scale of the parameter, we
@@ -486,10 +487,6 @@ class ScaledAdam(BatchedOptimizer):
                         raise RuntimeError(
                             "ScaledAdam optimizer does not support sparse gradients"
                         )
-                    # State initialization
-                    if len(state) == 0:
-                        self._init_state(group, p, state)
-                        # TODO: remove this.
 
 
                     try:
