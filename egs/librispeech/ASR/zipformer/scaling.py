@@ -297,7 +297,7 @@ class SoftmaxFunction(torch.autograd.Function):
         # (presumably) that op does not support float16, and autocast
         # is enabled.
         if torch.is_autocast_enabled():
-            ans = ans.to(torch.float16)
+            ans = ans.to(torch.get_autocast_gpu_dtype())
         ctx.save_for_backward(ans)
         ctx.x_dtype = x.dtype
         ctx.dim = dim
@@ -636,8 +636,9 @@ class ChunkCausalDepthwiseConv1d(torch.nn.Module):
                 )
 
     def forward(self, x: Tensor, chunk_size: int = -1) -> Tensor:
-        """
-             Forward function.  Args:
+        """Forward function.
+
+        Args:
                x: a Tensor of shape (batch_size, channels, seq_len)
         chunk_size: the chunk size, in frames; does not have to divide seq_len exactly.
         """
@@ -1032,7 +1033,7 @@ class WhiteningPenaltyFunction(torch.autograd.Function):
                         w.prob = w.max_prob
                         metric.backward()
                         penalty_grad = x_detached.grad
-                        scale = w.grad_scale * (
+                        scale = float(w.grad_scale) * (
                             x_grad.to(torch.float32).norm()
                             / (penalty_grad.norm() + 1.0e-20)
                         )
@@ -1074,7 +1075,7 @@ class Whiten(nn.Module):
         super(Whiten, self).__init__()
         assert num_groups >= 1
         assert float(whitening_limit) >= 1
-        assert grad_scale >= 0
+        assert float(grad_scale) >= 0
         self.num_groups = num_groups
         self.whitening_limit = whitening_limit
         self.grad_scale = grad_scale
@@ -1233,7 +1234,7 @@ class DoubleSwishFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
         requires_grad = x.requires_grad
-        if x.dtype == torch.float16:
+        if x.dtype == torch.float16 or x.dtype == torch.bfloat16:
             x = x.to(torch.float32)
 
         s = torch.sigmoid(x - 1.0)
@@ -1345,7 +1346,7 @@ class SwooshLFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
         requires_grad = x.requires_grad
-        if x.dtype == torch.float16:
+        if x.dtype == torch.float16 or x.dtype == torch.bfloat16:
             x = x.to(torch.float32)
 
         zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
@@ -1378,7 +1379,7 @@ class SwooshLFunction(torch.autograd.Function):
                 d_int = d_scaled.to(torch.uint8)
                 ctx.save_for_backward(d_int)
                 if x.dtype == torch.float16 or torch.is_autocast_enabled():
-                    y = y.to(torch.float16)
+                    y = y.to(torch.get_autocast_gpu_dtype())
                 return y
 
     @staticmethod
@@ -1424,7 +1425,7 @@ class SwooshRFunction(torch.autograd.Function):
     def forward(ctx, x: Tensor) -> Tensor:
         requires_grad = x.requires_grad
 
-        if x.dtype == torch.float16:
+        if x.dtype == torch.float16 or x.dtype == torch.bfloat16:
             x = x.to(torch.float32)
 
         zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
@@ -1454,7 +1455,7 @@ class SwooshRFunction(torch.autograd.Function):
                 d_int = d_scaled.to(torch.uint8)
                 ctx.save_for_backward(d_int)
                 if x.dtype == torch.float16 or torch.is_autocast_enabled():
-                    y = y.to(torch.float16)
+                    y = y.to(torch.get_autocast_gpu_dtype())
                 return y
 
     @staticmethod
@@ -1634,7 +1635,7 @@ class ActivationDropoutAndLinear(torch.nn.Module):
         self.dropout_shared_dim = dropout_shared_dim
 
     def forward(self, x: Tensor):
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
+        if not self.training or torch.jit.is_scripting() or torch.jit.is_tracing():
             if self.activation == "SwooshL":
                 x = SwooshLForward(x)
             elif self.activation == "SwooshR":

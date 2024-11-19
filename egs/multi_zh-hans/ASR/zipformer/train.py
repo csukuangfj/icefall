@@ -539,6 +539,43 @@ def get_params() -> AttributeDict:
     return params
 
 
+def normalize_text_alimeeting(text: str, normalize: str = "m2met") -> str:
+    """
+    Text normalization similar to M2MeT challenge baseline.
+    See: https://github.com/yufan-aslp/AliMeeting/blob/main/asr/local/text_normalize.pl
+    """
+    if normalize == "none":
+        return text
+    elif normalize == "m2met":
+        import re
+
+        text = text.replace(" ", "")
+        text = text.replace("<sil>", "")
+        text = text.replace("<%>", "")
+        text = text.replace("<->", "")
+        text = text.replace("<$>", "")
+        text = text.replace("<#>", "")
+        text = text.replace("<_>", "")
+        text = text.replace("<space>", "")
+        text = text.replace("`", "")
+        text = text.replace("&", "")
+        text = text.replace(",", "")
+        if re.search("[a-zA-Z]", text):
+            text = text.upper()
+        text = text.replace("Ａ", "A")
+        text = text.replace("ａ", "A")
+        text = text.replace("ｂ", "B")
+        text = text.replace("ｃ", "C")
+        text = text.replace("ｋ", "K")
+        text = text.replace("ｔ", "T")
+        text = text.replace("，", "")
+        text = text.replace("丶", "")
+        text = text.replace("。", "")
+        text = text.replace("、", "")
+        text = text.replace("？", "")
+        return text
+
+
 def _to_int_tuple(s: str):
     return tuple(map(int, s.split(",")))
 
@@ -788,11 +825,14 @@ def compute_loss(
     warm_step = params.warm_step
 
     texts = batch["supervisions"]["text"]
+    # remove spaces in texts
+    texts = [normalize_text_alimeeting(text) for text in texts]
+
     y = sp.encode(texts, out_type=int)
     y = k2.RaggedTensor(y)
 
     with torch.set_grad_enabled(is_training):
-        simple_loss, pruned_loss, ctc_loss = model(
+        losses = model(
             x=feature,
             x_lens=feature_lens,
             y=y,
@@ -800,6 +840,7 @@ def compute_loss(
             am_scale=params.am_scale,
             lm_scale=params.lm_scale,
         )
+        simple_loss, pruned_loss, ctc_loss = losses[:3]
 
         loss = 0.0
 
