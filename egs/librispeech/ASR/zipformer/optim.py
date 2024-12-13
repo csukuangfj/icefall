@@ -586,7 +586,7 @@ class ScaledAdam(BatchedOptimizer):
             )
             first_state["num_clipped"] = 0
             quartiles = " ".join(["%.3e" % x for x in quartiles])
-            logging.warn(
+            logging.warning(
                 f"Clipping_scale={clipping_scale}, grad-norm quartiles {quartiles}, "
                 f"threshold={threshold:.3e}, percent-clipped={percent_clipped:.1f}"
             )
@@ -601,8 +601,8 @@ class ScaledAdam(BatchedOptimizer):
             ans = 0.0
         if ans < 1.0:
             first_state["num_clipped"] += 1
-        if ans < 0.1:
-            logging.warn(
+        if ans < 0.5:
+            logging.warning(
                 f"Scaling gradients by {ans}, model_norm_threshold={model_norm_threshold}"
             )
             if self.show_dominant_parameters:
@@ -610,12 +610,43 @@ class ScaledAdam(BatchedOptimizer):
                 self._show_gradient_dominating_parameter(
                     tuples, tot_sumsq, group["scalar_lr_scale"]
                 )
+                self._show_param_with_unusual_grad(tuples)
 
         if ans == 0.0:
             for (p, state, param_names) in tuples:
                 p.grad.zero_()  # get rid of infinity()
 
         return ans
+
+    def _show_param_with_unusual_grad(
+        self,
+        tuples: List[Tuple[Tensor, dict, List[str]]],
+    ):
+        """
+        Print information about parameter which has the largest ratio of grad-on-this-batch
+        divided by normal grad size.
+           tuples: a list of tuples of (param, state, param_names)
+                where param is a batched set of parameters,
+                with a .grad (1st dim is batch dim)
+                and state is the state-dict where optimization parameters are kept.
+                param_names is a List[str] while each str is name for a parameter
+                in batched set of parameters "param".
+        """
+        largest_ratio = 0.0
+        largest_name = ""
+        for (p, state, batch_param_names) in tuples:
+            dims = list(range(1, p.ndim))
+            grad_ratio = ((p.grad ** 2).mean(dim=dims) /
+                          state["exp_avg_sq"].mean(dim=dims))
+            max_grad_ratio, max_index = grad_ratio.to('cpu').max(dim=0)
+            if max_grad_ratio.item() > largest_ratio:
+                largest_ratio = max_grad_ratio.item()
+                largest_name = batch_param_names[max_index.item()]
+        logging.warning(f"Parameter with most larger-than-usual grad is {largest_name}, with ratio (cur_grad / normal_grad) of "
+                        f"{largest_ratio ** 0.5}")
+
+
+
 
     def _show_gradient_dominating_parameter(
         self,
@@ -674,7 +705,7 @@ class ScaledAdam(BatchedOptimizer):
             dominant_rms,
             dominant_grad,
         ) = sorted_by_proportion[dominant_param_name]
-        logging.warn(
+        logging.warning(
             f"Parameter dominating tot_sumsq {dominant_param_name}"
             f" with proportion {dominant_proportion:.2f},"
             f" where dominant_sumsq=(grad_sumsq*orig_rms_sq)"
@@ -779,7 +810,7 @@ class LRScheduler(object):
     def print_lr(self, is_verbose, group, lr):
         """Display the current learning rate."""
         if is_verbose:
-            logging.warn(
+            logging.warning(
                 f"Epoch={self.epoch}, batch={self.batch}: adjusting learning rate"
                 f" of group {group} to {lr:.4e}."
             )
@@ -1110,7 +1141,7 @@ def _test_scaled_adam(hidden_dim: int):
         if iter == 0:
             optim = Eve(m.parameters(), lr=0.003)
         elif iter == 1:
-            optim = ScaledAdam(m.parameters(), lr=0.03, clipping_scale=2.0)
+            optim = ScaledAdam(m.named_parameters(), lr=0.03, clipping_scale=2.0)
         scheduler = Eden(optim, lr_batches=200, lr_epochs=5, verbose=False)
 
         start = timeit.default_timer()
