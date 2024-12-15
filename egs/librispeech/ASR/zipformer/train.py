@@ -1336,7 +1336,7 @@ def run(rank, world_size, args):
     )
 
     scheduler = Eden(optimizer, params.lr_batches, params.lr_epochs,
-                     warmup_start=0.1)
+                     warmup_start=0.1, warmup_batches=1000)
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
