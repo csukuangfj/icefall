@@ -634,16 +634,22 @@ class ScaledAdam(BatchedOptimizer):
         """
         largest_ratio = 0.0
         largest_name = ""
+        ratios_names = [ ]
         for (p, state, batch_param_names) in tuples:
             dims = list(range(1, p.ndim))
-            grad_ratio = ((p.grad ** 2).mean(dim=dims) /
-                          state["exp_avg_sq"].mean(dim=dims))
-            max_grad_ratio, max_index = grad_ratio.to('cpu').max(dim=0)
-            if max_grad_ratio.item() > largest_ratio:
-                largest_ratio = max_grad_ratio.item()
-                largest_name = batch_param_names[max_index.item()]
-        logging.warning(f"Parameter with most larger-than-usual grad is {largest_name}, with ratio (cur_grad / normal_grad) of "
-                        f"{largest_ratio ** 0.5}")
+            def mean(x):
+                # workaround for bad interface of torch's "mean" for when dims is the empty list.
+                if len(dims) > 0:
+                    return x.mean(dim=dims)
+                else:
+                    return x
+            grad_ratio = (mean(p.grad ** 2) / state["exp_avg_sq"].mean(dim=dims)).sqrt()
+            ratios_names +=  zip(grad_ratio.to('cpu').tolist(), batch_param_names)
+
+        ratios_names = sorted(ratios_names, reverse=True)
+        ratios_names = ratios_names[:10]
+
+        logging.warning(f"Parameters with most larger-than-usual grads, with ratios, are: {ratios_names}")
 
 
 
