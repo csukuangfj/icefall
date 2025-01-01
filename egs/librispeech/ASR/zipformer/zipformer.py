@@ -493,7 +493,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.0), (18000.0, 0.0), (40000.0, 2.0)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (18000.0, 0.1), (40000.0, 2.0)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -634,8 +634,8 @@ class Zipformer2EncoderLayer(nn.Module):
         if not (randomize and self.training):
             return ans
         scale = float(self.randomize_scale)
-        if scale == 0.0:
-            return ans
+        #if scale == 0.0:
+        #    return ans
 
         (seq_len, batch_size, emb_dim) = src.shape
         t = torch.empty(batch_size, 1).uniform_(0.1, 2.0).clamp_(max=1.0)
