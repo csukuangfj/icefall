@@ -65,9 +65,6 @@ class Zipformer2(EncoderInterface):
         encoder_dim (Tuple[int]): embedding dimension of each of the encoder stacks, one per
            encoder stack.
         num_encoder_layers (int or Tuple[int])): number of encoder layers for each stack
-        encoder_unmasked_dim (int or Tuple[int]): unmasked dimension in each of
-            the encoder stacks for purposes of per-frame dropout (recommend 256 for
-            now).
         query_head_dim (int or Tuple[int]): dimension of query and key per attention
            head: per stack, if a tuple..
         pos_head_dim (int or Tuple[int]): dimension of positional-encoding projection per
@@ -103,7 +100,6 @@ class Zipformer2(EncoderInterface):
         downsampling_factor: Tuple[int] = (2, 4),
         encoder_dim: Union[int, Tuple[int]] = 384,
         num_encoder_layers: Union[int, Tuple[int]] = 4,
-        encoder_unmasked_dim: Union[int, Tuple[int]] = 256,
         query_head_dim: Union[int, Tuple[int]] = 24,
         pos_head_dim: Union[int, Tuple[int]] = 4,
         value_head_dim: Union[int, Tuple[int]] = 12,
@@ -136,9 +132,6 @@ class Zipformer2(EncoderInterface):
         self.output_downsampling_factor = output_downsampling_factor  # int
         self.downsampling_factor = downsampling_factor  # tuple
         self.encoder_dim = encoder_dim = _to_tuple(encoder_dim)  # tuple
-        self.encoder_unmasked_dim = encoder_unmasked_dim = _to_tuple(
-            encoder_unmasked_dim
-        )  # tuple
         num_encoder_layers = _to_tuple(num_encoder_layers)
         self.num_encoder_layers = num_encoder_layers
         self.query_head_dim = query_head_dim = _to_tuple(query_head_dim)
@@ -151,9 +144,6 @@ class Zipformer2(EncoderInterface):
         self.causal = causal
         self.chunk_size = chunk_size
         self.left_context_frames = left_context_frames
-
-        for u, d in zip(encoder_unmasked_dim, encoder_dim):
-            assert u <= d
 
         # each one will be Zipformer2Encoder or DownsampledZipformer2Encoder
         encoders = []
@@ -180,9 +170,6 @@ class Zipformer2(EncoderInterface):
                 num_encoder_layers[i],
                 pos_dim=pos_dim,
                 dropout=dropout,
-                warmup_begin=warmup_batches * (i + 1) / (num_encoders + 1),
-                warmup_end=warmup_batches * (i + 2) / (num_encoders + 1),
-                final_layerdrop_rate=0.035 * (downsampling_factor[i] ** 0.5),
             )
 
             if downsampling_factor[i] != 1:
@@ -204,68 +191,6 @@ class Zipformer2(EncoderInterface):
             dropout=dropout,
             causal=causal,
         )
-
-    def get_feature_masks(self, x: Tensor) -> Union[List[float], List[Tensor]]:
-        """
-        In eval mode, returns [1.0] * num_encoders; in training mode, returns a number of
-        randomized feature masks, one per encoder.
-        On e.g. 15% of frames, these masks will zero out all encoder dims larger than
-        some supplied number, e.g. >256, so in effect on those frames we are using
-        a smaller encoder dim.
-
-        We generate the random masks at this level because we want the 2 masks to 'agree'
-        all the way up the encoder stack. This will mean that the 1st mask will have
-        mask values repeated self.zipformer_subsampling_factor times.
-
-        Args:
-           x: the embeddings (needed for the shape and dtype and device), of shape
-             (1, batch_size, encoder_dims0)
-        """
-        num_encoders = len(self.encoder_dim)
-        if not self.training:
-            return [1.0] * num_encoders
-
-        (num_frames0, batch_size, _encoder_dims0) = x.shape
-
-        assert self.encoder_dim[0] == _encoder_dims0, (
-            self.encoder_dim[0],
-            _encoder_dims0,
-        )
-
-        feature_mask_dropout_prob = 0.125
-
-        # mask1 shape: (1, batch_size, 1)
-        mask1 = (
-            torch.rand(1, batch_size, 1, device=x.device) > feature_mask_dropout_prob
-        ).to(x.dtype)
-
-        # mask2 has additional sequences masked, about twice the number.
-        mask2 = torch.logical_and(
-            mask1,
-            (
-                torch.rand(1, batch_size, 1, device=x.device)
-                > feature_mask_dropout_prob
-            ).to(x.dtype),
-        )
-
-        # dim: (1, batch_size, 2)
-        mask = torch.cat((mask1, mask2), dim=-1)
-
-        feature_masks = []
-        for i in range(num_encoders):
-            channels = self.encoder_dim[i]
-            feature_mask = torch.ones(
-                1, batch_size, channels, dtype=x.dtype, device=x.device
-            )
-            u1 = self.encoder_unmasked_dim[i]
-            u2 = u1 + (channels - u1) // 2
-
-            feature_mask[:, :, u1:u2] *= mask[..., 0:1]
-            feature_mask[:, :, u2:] *= mask[..., 1:2]
-
-            feature_masks.append(feature_mask)
-
-        return feature_masks
 
     def get_chunk_info(self) -> Tuple[int, int]:
         """
@@ -318,10 +243,6 @@ class Zipformer2(EncoderInterface):
               of frames in `embeddings` before padding.
         """
         outputs = []
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            feature_masks = [1.0] * len(self.encoder_dim)
-        else:
-            feature_masks = self.get_feature_masks(x)
 
         chunk_size, left_context_chunks = self.get_chunk_info()
 
@@ -338,7 +259,6 @@ class Zipformer2(EncoderInterface):
             x = module(
                 x,
                 chunk_size=chunk_size,
-                feature_mask=feature_masks[i],
                 src_key_padding_mask=(
                     None
                     if src_key_padding_mask is None
@@ -575,47 +495,16 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        attention_skip_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.2), (4000.0, 0.05), (16000, 0.0), default=0
-        ),
-        conv_skip_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.2), (4000.0, 0.05), (16000, 0.0), default=0
-        ),
-        const_attention_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.25), (4000.0, 0.025), default=0
-        ),
-        ff2_skip_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.1), (4000.0, 0.01), (50000.0, 0.0)
-        ),
-        ff3_skip_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.1), (4000.0, 0.01), (50000.0, 0.0)
-        ),
-        bypass_skip_rate: FloatLike = ScheduledFloat(
-            (0.0, 0.5), (4000.0, 0.02), default=0
-        ),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
 
         # self.bypass implements layer skipping as well as bypass; see its default values.
         self.bypass = BypassModule(
-            embed_dim, skip_rate=bypass_skip_rate, straight_through_rate=0
+            embed_dim,
         )
         # bypass_mid is bypass used in the middle of the layer.
         self.bypass_mid = BypassModule(embed_dim, straight_through_rate=0)
-
-        # skip probability for dynamic modules (meaning: anything but feedforward).
-        self.attention_skip_rate = copy.deepcopy(attention_skip_rate)
-        # an additional skip probability that applies to ConvModule to stop it from
-        # contributing too much early on.
-        self.conv_skip_rate = copy.deepcopy(conv_skip_rate)
-
-        # ff2_skip_rate is to prevent the ff2 module from having output that's too big
-        # compared to its residual.
-        self.ff2_skip_rate = copy.deepcopy(ff2_skip_rate)
-        self.ff3_skip_rate = copy.deepcopy(ff3_skip_rate)
-
-        self.const_attention_rate = copy.deepcopy(const_attention_rate)
 
         self.self_attn_weights = RelPositionMultiheadAttentionWeights(
             embed_dim,
@@ -715,31 +604,6 @@ class Zipformer2EncoderLayer(nn.Module):
             max_abs=4.0,
         )
 
-    def get_sequence_dropout_mask(
-        self, x: Tensor, dropout_rate: float
-    ) -> Optional[Tensor]:
-        if (
-            dropout_rate == 0.0
-            or not self.training
-            or torch.jit.is_scripting()
-            or torch.jit.is_tracing()
-        ):
-            return None
-        batch_size = x.shape[1]
-        mask = (torch.rand(batch_size, 1, device=x.device) > dropout_rate).to(x.dtype)
-        return mask
-
-    def sequence_dropout(self, x: Tensor, dropout_rate: float) -> Tensor:
-        """
-        Apply sequence-level dropout to x.
-        x shape: (seq_len, batch_size, embed_dim)
-        """
-        dropout_mask = self.get_sequence_dropout_mask(x, dropout_rate)
-        if dropout_mask is None:
-            return x
-        else:
-            return x * dropout_mask
-
     def forward(
         self,
         src: Tensor,
@@ -754,8 +618,6 @@ class Zipformer2EncoderLayer(nn.Module):
                 src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
              pos_emb: (1, 2*seq_len-1, pos_emb_dim) or (batch_size, 2*seq_len-1, pos_emb_dim)
              chunk_size: the number of frames per chunk, of >= 0; if -1, no chunking.
-           feature_mask: something that broadcasts with src, that we'll multiply `src`
-                  by at every layer: if a Tensor, likely of shape (seq_len, batch_size, embedding_dim)
              attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
                     interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
                    True means masked position. May be None.
@@ -767,14 +629,6 @@ class Zipformer2EncoderLayer(nn.Module):
         """
         src_orig = src
 
-        # dropout rate for non-feedforward submodules
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            attention_skip_rate = 0.0
-        else:
-            attention_skip_rate = (
-                float(self.attention_skip_rate) if self.training else 0.0
-            )
-
         # attn_weights: (num_heads, batch_size, seq_len, seq_len)
         attn_weights = self.self_attn_weights(
             src,
@@ -785,88 +639,25 @@ class Zipformer2EncoderLayer(nn.Module):
 
         src = src + self.feed_forward1(src)
 
-        self_attn_dropout_mask = self.get_sequence_dropout_mask(
-            src, attention_skip_rate
+        src = src + self.balancer_na(self.nonlin_attention(src, attn_weights[0:1]))
+
+        src = src + self.self_attn1(src, attn_weights)
+
+        src = src + self.conv_module1(
+            src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
         )
 
-        selected_attn_weights = attn_weights[0:1]
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            pass
-        elif self.training and random.random() < float(self.const_attention_rate):
-            # Make attention weights constant.  The intention is to
-            # encourage these modules to do something similar to an
-            # averaging-over-time operation.
-            # only need the mask, can just use the 1st one and expand later
-            selected_attn_weights = selected_attn_weights[0:1]
-            selected_attn_weights = (selected_attn_weights > 0.0).to(
-                selected_attn_weights.dtype
-            )
-            selected_attn_weights = selected_attn_weights * (
-                1.0 / selected_attn_weights.sum(dim=-1, keepdim=True)
-            )
-
-        na = self.balancer_na(self.nonlin_attention(src, selected_attn_weights))
-
-        src = src + (
-            na if self_attn_dropout_mask is None else na * self_attn_dropout_mask
-        )
-
-        self_attn = self.self_attn1(src, attn_weights)
-
-        src = src + (
-            self_attn
-            if self_attn_dropout_mask is None
-            else self_attn * self_attn_dropout_mask
-        )
-
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            conv_skip_rate = 0.0
-        else:
-            conv_skip_rate = float(self.conv_skip_rate) if self.training else 0.0
-        src = src + self.sequence_dropout(
-            self.conv_module1(
-                src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
-            ),
-            conv_skip_rate,
-        )
-
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            ff2_skip_rate = 0.0
-        else:
-            ff2_skip_rate = float(self.ff2_skip_rate) if self.training else 0.0
-        src = src + self.sequence_dropout(
-            self.balancer_ff2(self.feed_forward2(src)), ff2_skip_rate
-        )
+        src = src + self.balancer_ff2(self.feed_forward2(src))
 
         # bypass in the middle of the layer.
         src = self.bypass_mid(src_orig, src)
 
-        self_attn = self.self_attn2(src, attn_weights)
+        src = src + self.self_attn2(src, attn_weights)
 
-        src = src + (
-            self_attn
-            if self_attn_dropout_mask is None
-            else self_attn * self_attn_dropout_mask
+        src = src + self.conv_module2(
+            src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
         )
-
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            conv_skip_rate = 0.0
-        else:
-            conv_skip_rate = float(self.conv_skip_rate) if self.training else 0.0
-        src = src + self.sequence_dropout(
-            self.conv_module2(
-                src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
-            ),
-            conv_skip_rate,
-        )
-
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            ff3_skip_rate = 0.0
-        else:
-            ff3_skip_rate = float(self.ff3_skip_rate) if self.training else 0.0
-        src = src + self.sequence_dropout(
-            self.balancer_ff3(self.feed_forward3(src)), ff3_skip_rate
-        )
+        src = src + self.balancer_ff3(self.feed_forward3(src))
 
         src = self.balancer1(src)
         src = self.norm(src)
@@ -1017,14 +808,10 @@ class Zipformer2Encoder(nn.Module):
         num_layers: int,
         pos_dim: int,
         dropout: float,
-        warmup_begin: float,
-        warmup_end: float,
-        initial_layerdrop_rate: float = 0.5,
-        final_layerdrop_rate: float = 0.05,
     ) -> None:
         super().__init__()
         self.encoder_pos = CompactRelPositionalEncoding(
-            pos_dim, dropout_rate=0.15, length_factor=1.0
+            pos_dim, dropout_rate=0.0, length_factor=1.0
         )
 
         self.layers = nn.ModuleList(
@@ -1032,24 +819,10 @@ class Zipformer2Encoder(nn.Module):
         )
         self.num_layers = num_layers
 
-        assert 0 <= warmup_begin <= warmup_end, (warmup_begin, warmup_end)
-
-        delta = (1.0 / num_layers) * (warmup_end - warmup_begin)
-        cur_begin = warmup_begin  # interpreted as a training batch index
-        for i in range(num_layers):
-            cur_end = cur_begin + delta
-            self.layers[i].bypass.skip_rate = ScheduledFloat(
-                (cur_begin, initial_layerdrop_rate),
-                (cur_end, final_layerdrop_rate),
-                default=0.0,
-            )
-            cur_begin = cur_end
-
     def forward(
         self,
         src: Tensor,
         chunk_size: int = -1,
-        feature_mask: Union[Tensor, float] = 1.0,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
     ) -> Tensor:
@@ -1058,8 +831,6 @@ class Zipformer2Encoder(nn.Module):
         Args:
             src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
             chunk_size: the number of frames per chunk, of >= 0; if -1, no chunking.
-            feature_mask: something that broadcasts with src, that we'll multiply `src`
-               by at every layer: if a Tensor, likely of shape (seq_len, batch_size, embedding_dim)
             attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
                  interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
                  True means masked position. May be None.
@@ -1071,9 +842,6 @@ class Zipformer2Encoder(nn.Module):
         pos_emb = self.encoder_pos(src)
         output = src
 
-        if not torch.jit.is_scripting() and not torch.jit.is_tracing():
-            output = output * feature_mask
-
         for i, mod in enumerate(self.layers):
             output = mod(
                 output,
@@ -1082,9 +850,6 @@ class Zipformer2Encoder(nn.Module):
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
             )
-
-            if not torch.jit.is_scripting() and not torch.jit.is_tracing():
-                output = output * feature_mask
 
         return output
 
@@ -1240,7 +1005,6 @@ class DownsampledZipformer2Encoder(nn.Module):
         self,
         src: Tensor,
         chunk_size: int = -1,
-        feature_mask: Union[Tensor, float] = 1.0,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
     ) -> Tensor:
@@ -1248,8 +1012,6 @@ class DownsampledZipformer2Encoder(nn.Module):
 
         Args:
             src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
-            feature_mask: something that broadcasts with src, that we'll multiply `src`
-               by at every layer: if a Tensor, likely of shape (seq_len, batch_size, embedding_dim)
             attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
                  interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
                  True means masked position. May be None.
@@ -1267,7 +1029,6 @@ class DownsampledZipformer2Encoder(nn.Module):
         src = self.encoder(
             src,
             chunk_size=chunk_size // ds,
-            feature_mask=feature_mask,
             attn_mask=attn_mask,
             src_key_padding_mask=src_key_padding_mask,
         )
@@ -2432,7 +2193,6 @@ def _test_zipformer_main(causal: bool = False):
 
     c = Zipformer2(
         encoder_dim=(64, 96),
-        encoder_unmasked_dim=(48, 64),
         num_heads=(4, 4),
         causal=causal,
         chunk_size=(4,) if causal else (-1,),

@@ -192,14 +192,6 @@ def add_model_arguments(parser: argparse.ArgumentParser):
     )
 
     parser.add_argument(
-        "--encoder-unmasked-dim",
-        type=str,
-        default="192,192,256,256,256,192",
-        help="Unmasked dimensions in the encoders, relates to augmentation during training.  "
-        "A single int or comma-separated list.  Must be <= each corresponding encoder_dim.",
-    )
-
-    parser.add_argument(
         "--cnn-module-kernel",
         type=str,
         default="31,31,15,15,15,31",
@@ -646,7 +638,6 @@ def get_encoder_model(params: AttributeDict) -> nn.Module:
         downsampling_factor=_to_int_tuple(params.downsampling_factor),
         num_encoder_layers=_to_int_tuple(params.num_encoder_layers),
         encoder_dim=_to_int_tuple(params.encoder_dim),
-        encoder_unmasked_dim=_to_int_tuple(params.encoder_unmasked_dim),
         query_head_dim=_to_int_tuple(params.query_head_dim),
         pos_head_dim=_to_int_tuple(params.pos_head_dim),
         value_head_dim=_to_int_tuple(params.value_head_dim),
