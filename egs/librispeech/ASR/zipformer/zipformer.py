@@ -466,7 +466,6 @@ def _whitening_schedule(x: float, ratio: float = 2.0) -> ScheduledFloat:
 def _balancer_schedule(min_prob: float):
     return ScheduledFloat((0.0, 0.4), (8000.0, min_prob))
 
-
 class Zipformer2EncoderLayer(nn.Module):
     """
     Args:
@@ -482,7 +481,6 @@ class Zipformer2EncoderLayer(nn.Module):
         >>> pos_emb = torch.rand(32, 19, 512)
         >>> out = encoder_layer(src, pos_emb)
     """
-
     def __init__(
         self,
         embed_dim: int,
@@ -495,10 +493,12 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.0), (18000.0, 0.0), (40000.0, 2.0)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
 
+        self.randomize_scale = copy.deepcopy(randomize_scale)
         # self.bypass implements layer skipping as well as bypass; see its default values.
         self.bypass = BypassModule(
             embed_dim,
@@ -604,7 +604,55 @@ class Zipformer2EncoderLayer(nn.Module):
             max_abs=4.0,
         )
 
+
     def forward(
+        self,
+        src: Tensor,
+        pos_emb: Tensor,
+        chunk_size: int = -1,
+        attn_mask: Optional[Tensor] = None,
+        src_key_padding_mask: Optional[Tensor] = None,
+        randomize: bool = False,  # do the invertibility-encouraging randomization if True.
+    ) -> Tensor:
+        """
+            Pass the input through the encoder layer.
+            Args:
+                src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
+             pos_emb: (1, 2*seq_len-1, pos_emb_dim) or (batch_size, 2*seq_len-1, pos_emb_dim)
+             chunk_size: the number of frames per chunk, of >= 0; if -1, no chunking.
+             attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
+                    interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
+                   True means masked position. May be None.
+        src_key_padding_mask:  the mask for padding, of shape (batch_size, seq_len); True means
+                 masked position.  May be None.
+             randomize: if true use a form of randomization/dropout that encourages invertibility.
+
+            Returns:
+               A tensor which has the same shape as src
+        """
+        ans = self.forward_internal(src, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
+        if not (randomize and self.training):
+            return ans
+        scale = float(self.randomize_scale)
+        if scale == 0.0:
+            return ans
+
+        (seq_len, batch_size, emb_dim) = src.shape
+        t = torch.empty(batch_size, 1).uniform_(0.1, 2.0).clamp_(max=1.0)
+        # t is random from 0.1 to 1, many elements exactly 1.
+
+        xt = src + (ans - src) * t
+        ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
+        x0 = xt - (ans_t - xt) * t
+        # x0 is a reconstruction of src based on the assumption that there are
+        # straight non-crossing trajectories.
+        # If everything is nicely invertible, x0 - src will be zero and "rand" will be
+        # zero.
+        rand = torch.randn_like(src) * (x0 - src)
+        return ans + rand
+
+
+    def forward_internal(
         self,
         src: Tensor,
         pos_emb: Tensor,
@@ -842,6 +890,7 @@ class Zipformer2Encoder(nn.Module):
         pos_emb = self.encoder_pos(src)
         output = src
 
+        invertible_layer = random.randint(0, len(self.layers))
         for i, mod in enumerate(self.layers):
             output = mod(
                 output,
@@ -849,6 +898,7 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
+                randomize=(i == invertible_layer),
             )
 
         return output
