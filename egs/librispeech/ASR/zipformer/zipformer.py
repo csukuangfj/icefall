@@ -638,7 +638,7 @@ class Zipformer2EncoderLayer(nn.Module):
         #    return ans
 
         (seq_len, batch_size, emb_dim) = src.shape
-        t = torch.empty(batch_size, 1).uniform_(0.1, 2.0).clamp_(max=1.0)
+        t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 2.0).clamp_(max=1.0)
         # t is random from 0.1 to 1, many elements exactly 1.
 
         xt = src + (ans - src) * t
