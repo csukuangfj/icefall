@@ -1233,7 +1233,6 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         query_head_dim: int,
         pos_head_dim: int,
         dropout: float = 0.0,
-        pos_emb_skip_rate: FloatLike = ScheduledFloat((0.0, 0.5), (4000.0, 0.0)),
     ) -> None:
         super().__init__()
         self.embed_dim = embed_dim
@@ -1241,8 +1240,9 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         self.query_head_dim = query_head_dim
         self.pos_head_dim = pos_head_dim
         self.dropout = dropout
-        self.pos_emb_skip_rate = copy.deepcopy(pos_emb_skip_rate)
         self.name = None  # will be overwritten in training code; for diagnostics.
+
+        self.attn_score_limit = copy.deepcopy(ScheduledFloat((0.0, 5.0), (40000.0, 20.0)))
 
         key_head_dim = query_head_dim
         in_proj_dim = (query_head_dim + key_head_dim + pos_head_dim) * num_heads
@@ -1345,14 +1345,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
 
         attn_scores = torch.matmul(q, k)
 
-        use_pos_scores = False
-        if torch.jit.is_scripting() or torch.jit.is_tracing():
-            # We can't put random.random() in the same line
-            use_pos_scores = True
-        elif not self.training or random.random() >= float(self.pos_emb_skip_rate):
-            use_pos_scores = True
-
-        if use_pos_scores:
+        if True:
+            # position scores.
             pos_emb = self.linear_pos(pos_emb)
             seq_len2 = 2 * seq_len - 1
             pos_emb = pos_emb.reshape(-1, seq_len2, num_heads, pos_head_dim).permute(
@@ -1405,7 +1399,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
             # values rather than a regularization method that should be active
             # under normal circumstances.
             attn_scores = penalize_abs_values_gt(
-                attn_scores, limit=25.0, penalty=1.0e-04, name=self.name
+                attn_scores, limit=float(self.attn_score_limit), penalty=1.0e-04, name=self.name
             )
 
         assert attn_scores.shape == (num_heads, batch_size, seq_len, seq_len)
