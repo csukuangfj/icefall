@@ -641,14 +641,11 @@ class Zipformer2EncoderLayer(nn.Module):
         t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 2.0).clamp_(max=1.0)
         # t is random from 0.1 to 1, many elements exactly 1.
 
-        xt = src + (ans - src) * t
+        v0 = ans - src
+        xt = src + v0 * t
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
-        x0 = xt - (ans_t - xt) * t
-        # If everything is nicely invertible, the trajectories at t=0 and t will be the same
-        # so (ans - ans_t) will be zero and "rand" will be zero.
-        # we divide by "t" to get more even loss-function values.  can interpret this as
-        # a penalty on difference of 2nd derivatives w.r.t. t.
-        rand = torch.randn_like(src) * (ans - ans_t) / t
+        vt = ans_t - xt
+        rand = torch.randn_like(src) * (vt - v0) / t
         return ans + rand
 
 
