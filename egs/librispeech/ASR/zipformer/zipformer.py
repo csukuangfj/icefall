@@ -149,7 +149,7 @@ class Zipformer2(EncoderInterface):
 
         num_encoders = len(downsampling_factor)
         cur_downsample = 1
-        input_dim = encoder_dim[0]
+        input_dim = max(encoder_dim) // output_downsampling_factor
 
         # caution: some changes we made for this break the streaming, later we'll try to fix this.
         encoders_downsampling_factors = [ ]
@@ -256,10 +256,17 @@ class Zipformer2(EncoderInterface):
         else:
             attn_mask = self._get_attn_mask(x, chunk_size, left_context_chunks)
 
+        orig_seq_len = x.shape[0]
+
+        def truncate(x, downsampling_factor):
+            max_len = (orig_seq_len + downsampling_factor - 1) // downsampling_factor
+            return x[:max_len] if x.shape[0] > max_len else x
+
         for module in self.encoders:
             if isinstance(module, Zipformer2Encoder):
                 i = module.encoder_index  # was set in this class's __init__ function.
                 ds = self.downsampling_factor[i]
+                x = truncate(x, ds)
                 x = module(
                     x,
                     chunk_size=chunk_size,
@@ -276,7 +283,7 @@ class Zipformer2(EncoderInterface):
             else:
                 x = module(x)
 
-        x = x[..., :self.encoder_dim[-1]]
+        x = x[..., :max(self.encoder_dim)]  # for historical reasons.  can change this.
 
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
         if torch.jit.is_scripting() or torch.jit.is_tracing():

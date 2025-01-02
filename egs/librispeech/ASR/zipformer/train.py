@@ -624,9 +624,10 @@ def get_encoder_embed(params: AttributeDict) -> nn.Module:
     # In the normal configuration, we will downsample once more at the end
     # by a factor of 2, and most of the encoder stacks will run at a lower
     # sampling rate.
+    output_downsampling_factor = 2
     encoder_embed = Conv2dSubsampling(
         in_channels=params.feature_dim,
-        out_channels=_to_int_tuple(params.encoder_dim)[0],
+        out_channels=max(_to_int_tuple(params.encoder_dim)) // output_downsampling_factor,
         dropout=ScheduledFloat((0.0, 0.3), (20000.0, 0.1)),
     )
     return encoder_embed
