@@ -1052,6 +1052,7 @@ class InvertibleDownsample(torch.nn.Module):
                     not self.causal
                 ), f"pad should be zero for exporting streaming models. Given {pad}"
             src = torch.cat((src, src[-1:]), dim=0)
+            seq_len += 1
 
         src = src.permute(1, 0, 2).reshape(batch_size, seq_len // 2, in_channels * 2)
         src = self.proj(src)
@@ -2124,7 +2125,7 @@ def _test_zipformer_main(causal: bool = False):
         left_context_frames=(64,),
     )
     batch_size = 5
-    seq_len = 20
+    seq_len = 21
     # Just make sure the forward pass runs.
     f = c(
         torch.randn(seq_len, batch_size, 64),
