@@ -493,7 +493,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (18000.0, 0.1), (40000.0, 2.0)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (18000.0, 0.1), (40000.0, 1.0)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -644,11 +644,11 @@ class Zipformer2EncoderLayer(nn.Module):
         xt = src + (ans - src) * t
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
         x0 = xt - (ans_t - xt) * t
-        # x0 is a reconstruction of src based on the assumption that there are
-        # straight non-crossing trajectories.
-        # If everything is nicely invertible, x0 - src will be zero and "rand" will be
-        # zero.
-        rand = torch.randn_like(src) * (x0 - src)
+        # If everything is nicely invertible, the trajectories at t=0 and t will be the same
+        # so (ans - ans_t) will be zero and "rand" will be zero.
+        # we divide by "t" to get more even loss-function values.  can interpret this as
+        # a penalty on difference of 2nd derivatives w.r.t. t.
+        rand = torch.randn_like(src) * (ans - ans_t) / t
         return ans + rand
 
 
