@@ -478,7 +478,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (18000.0, 0.1), (40000.0, 1.0)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (5000.0, 0.1), (20000.0, 1.0)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
