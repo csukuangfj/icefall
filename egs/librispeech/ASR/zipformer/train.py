@@ -645,7 +645,7 @@ def get_encoder_model(params: AttributeDict) -> nn.Module:
         num_heads=_to_int_tuple(params.num_heads),
         feedforward_dim=_to_int_tuple(params.feedforward_dim),
         cnn_module_kernel=_to_int_tuple(params.cnn_module_kernel),
-        dropout=ScheduledFloat((0.0, 0.3), (20000.0, 0.1)),
+        dropout=0.0,
         warmup_batches=4000.0,
         causal=params.causal,
         chunk_size=_to_int_tuple(params.chunk_size),
@@ -1420,7 +1420,7 @@ def run(rank, world_size, args):
     valid_cuts += librispeech.dev_other_cuts()
     valid_dl = librispeech.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics:
+    if not params.print_diagnostics and False:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
