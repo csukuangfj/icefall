@@ -565,6 +565,39 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
             torch.nn.init.uniform_(ans.bias, -0.1 * initial_scale, 0.1 * initial_scale)
     return ans
 
+def OrthogonalLinearDownsampling(num_channels: int):
+    # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
+    # that is suitable to use when downsampling; we reshape then multiply by this matrix.
+    assert num_channels % 2 == 0
+    ans = nn.Linear(num_channels, num_channels, bias=False)
+    inv_sqrt2 = 2 ** -0.5
+    N = num_channels // 2
+    eye = inv_sqrt2 * torch.eye(N)
+    # four blocks: (1/sqrt(2)) (1, 1; -1, 1)
+    with torch.no_grad():
+        ans.weight[:N, :N] = eye
+        ans.weight[:N, N:] = eye
+        ans.weight[N:, :N] = -eye
+        ans.weight[N:, N:] = eye
+    return torch.nn.utils.parametrizations.orthogonal(ans)
+
+def OrthogonalLinearUpsampling(num_channels: int):
+    # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
+    # that is suitable to use when downsampling; we multiply by this matrix then reshape.
+    assert num_channels % 2 == 0
+    ans = nn.Linear(num_channels, num_channels, bias=False)
+    inv_sqrt2 = 2 ** -0.5
+    N = num_channels // 2
+    eye = inv_sqrt2 * torch.eye(N)
+    # four blocks: (1/sqrt(2)) (1, -1; 1, 1)
+    with torch.no_grad():
+        ans.weight[:N, :N] = eye
+        ans.weight[:N, N:] = -eye
+        ans.weight[N:, :N] = eye
+        ans.weight[N:, N:] = eye
+    return torch.nn.utils.parametrizations.orthogonal(ans)
+
+
 
 class ChunkCausalDepthwiseConv1d(torch.nn.Module):
     """

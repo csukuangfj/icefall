@@ -25,13 +25,11 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from encoder_interface import EncoderInterface
-from scaling import (
+from scaling2 import (
     Identity,  # more friendly to backward hooks than nn.Identity(), for diagnostic reasons.
-)
-from scaling import (
+    OrthogonalLinearUpsampling,
+    OrthogonalLinearDownsampling,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
-)
-from scaling import (
     ActivationDropoutAndLinear,
     Balancer,
     BiasNorm,
@@ -130,6 +128,7 @@ class Zipformer2(EncoderInterface):
             return x
 
         self.output_downsampling_factor = output_downsampling_factor  # int
+
         self.downsampling_factor = downsampling_factor  # tuple
         self.encoder_dim = encoder_dim = _to_tuple(encoder_dim)  # tuple
         num_encoder_layers = _to_tuple(num_encoder_layers)
@@ -145,11 +144,29 @@ class Zipformer2(EncoderInterface):
         self.chunk_size = chunk_size
         self.left_context_frames = left_context_frames
 
-        # each one will be Zipformer2Encoder or DownsampledZipformer2Encoder
+        # each one will be Zipformer2Encoder or InvertibleDownsample or InvertibleUpsample
         encoders = []
 
         num_encoders = len(downsampling_factor)
+        cur_downsample = 1
+        input_dim = encoder_dim[0]
+
+        # caution: some changes we made for this break the streaming, later we'll try to fix this.
+        encoders_downsampling_factors = [ ]
+
+        def set_downsample_factor(cur_downsample, ds):
+            while cur_downsample < ds:
+                # need to downsample
+                encoders.append(InvertibleDownsample(input_dim * cur_downsample))
+                cur_downsample *= 2
+            while cur_downsample > ds:
+                encoders.append(InvertibleUpsample(input_dim * cur_downsample))
+                cur_downsample //= 2
+            return cur_downsample
+
         for i in range(num_encoders):
+            cur_downsample = set_downsample_factor(cur_downsample, downsampling_factor[i])
+
             encoder_layer = Zipformer2EncoderLayer(
                 embed_dim=encoder_dim[i],
                 pos_dim=pos_dim,
@@ -171,26 +188,14 @@ class Zipformer2(EncoderInterface):
                 pos_dim=pos_dim,
                 dropout=dropout,
             )
-
-            if downsampling_factor[i] != 1:
-                encoder = DownsampledZipformer2Encoder(
-                    encoder,
-                    dim=encoder_dim[i],
-                    downsample=downsampling_factor[i],
-                    dropout=dropout,
-                    causal=causal,
-                )
-
+            encoder.encoder_index = i  # <-- will be used in streaming_forward
             encoders.append(encoder)
+
+        cur_downsample = set_downsample_factor(cur_downsample, output_downsampling_factor)
 
         self.encoders = nn.ModuleList(encoders)
 
-        self.downsample_output = SimpleDownsample(
-            max(encoder_dim),
-            downsample=output_downsampling_factor,
-            dropout=dropout,
-            causal=causal,
-        )
+
 
     def get_chunk_info(self) -> Tuple[int, int]:
         """
@@ -242,7 +247,6 @@ class Zipformer2(EncoderInterface):
             - lengths, a tensor of shape (batch_size,) containing the number
               of frames in `embeddings` before padding.
         """
-        outputs = []
 
         chunk_size, left_context_chunks = self.get_chunk_info()
 
@@ -252,29 +256,28 @@ class Zipformer2(EncoderInterface):
         else:
             attn_mask = self._get_attn_mask(x, chunk_size, left_context_chunks)
 
-        for i, module in enumerate(self.encoders):
-            ds = self.downsampling_factor[i]
-            x = convert_num_channels(x, self.encoder_dim[i])
+        for module in self.encoders:
+            if isinstance(module, Zipformer2Encoder):
+                i = module.encoder_index  # was set in this class's __init__ function.
+                ds = self.downsampling_factor[i]
+                x = module(
+                    x,
+                    chunk_size=chunk_size,
+                    src_key_padding_mask=(
+                        None
+                        if src_key_padding_mask is None
+                        else src_key_padding_mask[..., ::ds]
+                    ),
+                    attn_mask=(None
+                               if attn_mask is None
+                               else attn_mask[::ds, ::ds]
+                    ),
+                )
+            else:
+                x = module(x)
 
-            x = module(
-                x,
-                chunk_size=chunk_size,
-                src_key_padding_mask=(
-                    None
-                    if src_key_padding_mask is None
-                    else src_key_padding_mask[..., ::ds]
-                ),
-                attn_mask=attn_mask,
-            )
-            outputs.append(x)
+        x = x[..., :self.encoder_dim[-1]]
 
-        # if the last output has the largest dimension, x will be unchanged,
-        # it will be the same as outputs[-1].  Otherwise it will be concatenated
-        # from different pieces of 'outputs', taking each dimension from the
-        # most recent output that has it present.
-        x = self._get_full_dim_output(outputs)
-        x = self.downsample_output(x)
-        # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             lengths = (x_lens + 1) // 2
@@ -328,21 +331,6 @@ class Zipformer2(EncoderInterface):
             logging.info(f"attn_mask = {attn_mask}")
         return attn_mask
 
-    def _get_full_dim_output(self, outputs: List[Tensor]):
-        num_encoders = len(self.encoder_dim)
-        assert len(outputs) == num_encoders
-        output_dim = max(self.encoder_dim)
-        output_pieces = [outputs[-1]]
-        cur_dim = self.encoder_dim[-1]
-        for i in range(num_encoders - 2, -1, -1):
-            d = self.encoder_dim[i]
-            if d > cur_dim:
-                this_output = outputs[i]
-                output_pieces.append(this_output[..., cur_dim:d])
-                cur_dim = d
-        assert cur_dim == output_dim
-        return torch.cat(output_pieces, dim=-1)
-
     def streaming_forward(
         self,
         x: Tensor,
@@ -370,31 +358,28 @@ class Zipformer2(EncoderInterface):
               of frames in `embeddings` before padding.
             - updated states
         """
-        outputs = []
         new_states = []
         layer_offset = 0
 
-        for i, module in enumerate(self.encoders):
-            num_layers = module.num_layers
-            ds = self.downsampling_factor[i]
-            x = convert_num_channels(x, self.encoder_dim[i])
+        for module in enumerate(self.encoders):
+            if not isinstance(module, Zipformer2Encoder):
+                x = module(x)
+            else:
+                i = module.encoder_index  # was set in this class's __init__ function.
+                num_layers = module.num_layers
+                ds = self.downsampling_factor[i]
 
-            x, new_layer_states = module.streaming_forward(
-                x,
-                states=states[layer_offset * 6 : (layer_offset + num_layers) * 6],
-                left_context_len=self.left_context_frames[0] // ds,
-                src_key_padding_mask=src_key_padding_mask[..., ::ds],
-            )
-            layer_offset += num_layers
-            outputs.append(x)
-            new_states += new_layer_states
+                x, new_layer_states = module.streaming_forward(
+                    x,
+                    states=states[layer_offset * 6 : (layer_offset + num_layers) * 6],
+                    left_context_len=self.left_context_frames[0] // ds,
+                    src_key_padding_mask=src_key_padding_mask[..., ::ds],
+                )
+                layer_offset += num_layers
+                new_states += new_layer_states
 
-        # if the last output has the largest dimension, x will be unchanged,
-        # it will be the same as outputs[-1].  Otherwise it will be concatenated
-        # from different pieces of 'outputs', taking each dimension from the
-        # most recent output that has it present.
-        x = self._get_full_dim_output(outputs)
-        x = self.downsample_output(x)
+        x = x[..., :self.encoder_dim[-1]]
+
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2
         if torch.jit.is_scripting() or torch.jit.is_tracing():
@@ -874,7 +859,9 @@ class Zipformer2Encoder(nn.Module):
         r"""Pass the input through the encoder layers in turn.
 
         Args:
-            src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
+            src: the sequence to the encoder (required): shape (seq_len, batch_size, embed_dim),
+                 but embed_dim is allowed to exceed the modules' embed_dim; we will bypass
+                 any extra dimensions.
             chunk_size: the number of frames per chunk, of >= 0; if -1, no chunking.
             attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
                  interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
@@ -885,12 +872,16 @@ class Zipformer2Encoder(nn.Module):
         Returns: a Tensor with the same shape as src.
         """
         pos_emb = self.encoder_pos(src)
-        output = src
+
+        num_channels = src.shape[-1]
+        layer_dim = self.layers[0].embed_dim
+        if num_channels > layer_dim:
+            src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
         invertible_layer = random.randint(0, len(self.layers))
         for i, mod in enumerate(self.layers):
-            output = mod(
-                output,
+            src = mod(
+                src,
                 pos_emb,
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
@@ -898,7 +889,10 @@ class Zipformer2Encoder(nn.Module):
                 randomize=(i == invertible_layer),
             )
 
-        return output
+        if num_channels > layer_dim:
+            src = torch.cat((src, bypass), dim=-1)
+
+        return src
 
     def streaming_forward(
         self,
@@ -910,7 +904,7 @@ class Zipformer2Encoder(nn.Module):
         r"""Pass the input through the encoder layers in turn.
 
         Args:
-            src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
+            src: the sequence to the encoder (required): shape (seq_len, batch_size, embed_dim).
             states: list of cached tensors of N encoder layers. For layer-i, states[i*6:(i+1)*6] is
               (cached_key, cached_nonlin_attn, cached_val1, cached_val2, cached_conv1, cached_conv2).
             left_context_len: Number of left context frames.
@@ -923,7 +917,10 @@ class Zipformer2Encoder(nn.Module):
           - updated states
         """
         pos_emb = self.encoder_pos(src, left_context_len)
-        output = src
+        num_channels = src.shape[-1]
+        layer_dim = self.layers[0].embed_dim
+        if num_channels > layer_dim:
+            src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
         new_states = []
         for i, mod in enumerate(self.layers):
@@ -936,7 +933,7 @@ class Zipformer2Encoder(nn.Module):
                 cached_conv2,
             ) = states[i * 6 : (i + 1) * 6]
             (
-                output,
+                src,
                 new_cached_key,
                 new_cached_nonlin_attn,
                 new_cached_val1,
@@ -944,7 +941,7 @@ class Zipformer2Encoder(nn.Module):
                 new_cached_conv1,
                 new_cached_conv2,
             ) = mod.streaming_forward(
-                output,
+                src,
                 pos_emb,
                 cached_key=cached_key,
                 cached_nonlin_attn=cached_nonlin_attn,
@@ -964,7 +961,10 @@ class Zipformer2Encoder(nn.Module):
                 new_cached_conv2,
             ]
 
-        return output, new_states
+        if num_channels > layer_dim:
+            src = torch.cat((src, bypass), dim=-1)
+
+        return src, new_states
 
 
 class BypassModule(nn.Module):
@@ -1025,120 +1025,18 @@ class BypassModule(nn.Module):
         return src_orig + (src - src_orig) * bypass_scale
 
 
-class DownsampledZipformer2Encoder(nn.Module):
-    r"""
-    DownsampledZipformer2Encoder is a zipformer encoder evaluated at a reduced frame rate,
-    after convolutional downsampling, and then upsampled again at the output, and combined
-    with the origin input, so that the output has the same shape as the input.
-    """
 
+class InvertibleDownsample(torch.nn.Module):
+    """
+    Does downsampling in an invertible way, by a factor of two.
+    """
     def __init__(
-        self,
-        encoder: nn.Module,
-        dim: int,
-        downsample: int,
-        dropout: FloatLike,
-        causal: bool,
+            self, channels: int, causal: bool = False,
     ):
-        super(DownsampledZipformer2Encoder, self).__init__()
-        self.downsample_factor = downsample
-        self.downsample = SimpleDownsample(dim, downsample, dropout, causal)
-        self.num_layers = encoder.num_layers
-        self.encoder = encoder
-        self.upsample = SimpleUpsample(dim, downsample)
-        self.out_combiner = BypassModule(dim, straight_through_rate=0)
+        super().__init__()
 
-    def forward(
-        self,
-        src: Tensor,
-        chunk_size: int = -1,
-        attn_mask: Optional[Tensor] = None,
-        src_key_padding_mask: Optional[Tensor] = None,
-    ) -> Tensor:
-        r"""Downsample, go through encoder, upsample.
-
-        Args:
-            src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
-            attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
-                 interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
-                 True means masked position. May be None.
-            src_key_padding_mask:  the mask for padding, of shape (batch_size, seq_len); True means
-                 masked position.  May be None.
-
-        Returns: a Tensor with the same shape as src.
-        """
-        src_orig = src
-        src = self.downsample(src)
-        ds = self.downsample_factor
-        if attn_mask is not None:
-            attn_mask = attn_mask[::ds, ::ds]
-
-        src = self.encoder(
-            src,
-            chunk_size=chunk_size // ds,
-            attn_mask=attn_mask,
-            src_key_padding_mask=src_key_padding_mask,
-        )
-        src = self.upsample(src)
-        # remove any extra frames that are not a multiple of downsample_factor
-        src = src[: src_orig.shape[0]]
-
-        return self.out_combiner(src_orig, src)
-
-    def streaming_forward(
-        self,
-        src: Tensor,
-        states: List[Tensor],
-        left_context_len: int,
-        src_key_padding_mask: Tensor,
-    ) -> Tuple[Tensor, List[Tensor]]:
-        r"""Downsample, go through encoder, upsample, in streaming forward mode.
-
-        Args:
-            src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
-            states: list of cached tensors of N encoder layers. For layer-i, states[i*6:(i+1)*6] is
-              (cached_key, cached_nonlin_attn, cached_val1, cached_val2, cached_conv1, cached_conv2).
-            left_context_len: Number of left context frames.
-            src_key_padding_mask: the mask for padding, of shape (batch_size, left_context_len+seq_len);
-              True means masked position. May be None.
-
-        Returns:
-            - output, a Tensor with the same shape as src.
-            - updated states
-        """
-        src_orig = src
-        src = self.downsample(src)
-
-        src, new_states = self.encoder.streaming_forward(
-            src,
-            states=states,
-            left_context_len=left_context_len,
-            src_key_padding_mask=src_key_padding_mask,
-        )
-        src = self.upsample(src)
-        # remove any extra frames that are not a multiple of downsample_factor
-        src = src[: src_orig.shape[0]]
-
-        return self.out_combiner(src_orig, src), new_states
-
-
-class SimpleDownsample(torch.nn.Module):
-    """
-    Does downsampling with attention, by weighted sum, and a projection..
-    """
-
-    def __init__(
-        self, channels: int, downsample: int, dropout: FloatLike, causal: bool
-    ):
-        super(SimpleDownsample, self).__init__()
-
+        self.proj = OrthogonalLinearDownsampling(channels * 2)
         self.causal = causal
-        self.bias = nn.Parameter(torch.zeros(downsample))
-
-        self.name = None  # will be set from training code
-        self.dropout = copy.deepcopy(dropout)
-
-        self.downsample = downsample
 
     def forward(self, src: Tensor) -> Tensor:
         """
@@ -1147,57 +1045,37 @@ class SimpleDownsample(torch.nn.Module):
            ( (seq_len+downsample-1)//downsample, batch_size, channels)
         """
         (seq_len, batch_size, in_channels) = src.shape
-        ds = self.downsample
-        d_seq_len = (seq_len + ds - 1) // ds
 
-        # Pad to an exact multiple of self.downsample
-        # right-pad src, repeating the last element.
-        pad = d_seq_len * ds - seq_len
+        if seq_len % 2 == 1:
+            if torch.jit.is_tracing():
+                assert (
+                    not self.causal
+                ), f"pad should be zero for exporting streaming models. Given {pad}"
+            src = torch.cat((src, src[-1:]), dim=0)
 
-        if self.causal and torch.jit.is_tracing():
-            assert (
-                pad == 0
-            ), f"pad should be zero for exporting streaming models. Given {pad}"
+        src = src.permute(1, 0, 2).reshape(batch_size, seq_len // 2, in_channels * 2)
+        src = self.proj(src)
+        src = src.permute(1, 0, 2)  # (seq_len // 2, batch_size, in_channels * 2)
+        return src
 
-        # If we are exporting a streaming model, then we skip the if statement
-        if not self.causal or not torch.jit.is_tracing():
-            src_extra = src[src.shape[0] - 1 :].expand(pad, src.shape[1], src.shape[2])
-            src = torch.cat((src, src_extra), dim=0)
-
-        assert src.shape[0] == d_seq_len * ds, (src.shape, d_seq_len, ds)
-
-        src = src.reshape(d_seq_len, ds, batch_size, in_channels)
-
-        weights = self.bias.softmax(dim=0)
-        # weights: (downsample, 1, 1)
-        weights = weights.unsqueeze(-1).unsqueeze(-1)
-
-        # ans1 is the first `in_channels` channels of the output
-        ans = (src * weights).sum(dim=1)
-
-        return ans
-
-
-class SimpleUpsample(torch.nn.Module):
+class InvertibleUpsample(torch.nn.Module):
     """
-    A very simple form of upsampling that mostly just repeats the input, but
-    also adds a position-specific bias.
+    A very simple form of upsampling that is the inverse of InvertibleDownsampling.
     """
-
-    def __init__(self, num_channels: int, upsample: int):
-        super(SimpleUpsample, self).__init__()
-        self.upsample = upsample
+    def __init__(self, channels: int):
+        super().__init__()
+        self.proj = OrthogonalLinearUpsampling(channels)
 
     def forward(self, src: Tensor) -> Tensor:
         """
         x: (seq_len, batch_size, num_channels)
         Returns a tensor of shape
-           ( (seq_len*upsample), batch_size, num_channels)
+           ( (seq_len*2), batch_size, num_channels // 2)
         """
-        upsample = self.upsample
-        (seq_len, batch_size, num_channels) = src.shape
-        src = src.unsqueeze(1).expand(seq_len, upsample, batch_size, num_channels)
-        src = src.reshape(seq_len * upsample, batch_size, num_channels)
+        src = self.proj(src)
+        (seq_len, batch_size, in_channels) = src.shape
+        src = src.permute(1, 0, 2).reshape(batch_size, seq_len * 2, in_channels // 2)
+        src = src.permute(1, 0, 2)  # (seq_len * 2, batch_size, in_channels // 2)
         return src
 
 
@@ -1216,7 +1094,7 @@ class CompactRelPositionalEncoding(torch.nn.Module):
     making it hard to distinguish between different magnitudes of large offsets, so we use a logarithmic
     function to compress large offsets to a smaller range before applying atan().
     Scalings are chosen in such a way that the embedding can clearly distinguish individual offsets as long
-    as they are quite close to the origin, e.g. abs(offset) <= about sqrt(embedding_dim)
+    as they are quite close to the origin, e.g. abs(offset) <= about sqrt(embed_dim)
 
 
     Args:
