@@ -637,10 +637,10 @@ class Zipformer2EncoderLayer(nn.Module):
         xt = src + (ans - src) * t
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
         x1 = xt + (ans_t - xt) * (1. - t)
-        scale = float(self.randomize_scale)
+        scale = float(self.randomize_scale) / (t - t**2)
         diff = x1 - ans  # this is the difference between a 1-step and a 2-step version of x_1.
                          # we want 'diff' to be zero.
-        rand = torch.empty_like(src).uniform_(-scale, scale) * diff
+        rand = torch.randn_like(src) * scale * diff
         return ans + rand
 
 
