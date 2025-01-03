@@ -485,7 +485,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.1), (5000.0, 0.1), (20000.0, 1.0)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 1.0), (20000.0, 4.0)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -622,22 +622,25 @@ class Zipformer2EncoderLayer(nn.Module):
             Returns:
                A tensor which has the same shape as src
         """
-        ans = self.forward_internal(src, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
+        ans = self.forward_internal(src, pos_emb, chunk_size,
+                                    attn_mask, src_key_padding_mask)
         if not (randomize and self.training):
             return ans
-        scale = float(self.randomize_scale)
-        #if scale == 0.0:
-        #    return ans
+
+        # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
+        # situation, and we compute an alternative version of x1 (called "x1" in the code)
+        # that is computed as two steps.  We then amplify the difference between "ans" and
+        # that alternative version of x1, and multiply it by random noise.
 
         (seq_len, batch_size, emb_dim) = src.shape
-        t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 2.0).clamp_(max=1.0)
-        # t is random from 0.1 to 1, many elements exactly 1.
-
-        v0 = ans - src
-        xt = src + v0 * t
+        t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 0.9)
+        xt = src + (ans - src) * t
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
-        vt = ans_t - xt
-        rand = torch.randn_like(src) * (vt - v0) / t
+        x1 = xt + (ans_t - xt) * (1. - t)
+        scale = float(self.randomize_scale)
+        diff = x1 - ans  # this is the difference between a 1-step and a 2-step version of x_1.
+                         # we want 'diff' to be zero.
+        rand = torch.empty_like(src).uniform_(-scale, scale) * diff
         return ans + rand
 
 
@@ -2125,17 +2128,19 @@ def _test_zipformer_main(causal: bool = False):
         chunk_size=(4,) if causal else (-1,),
         left_context_frames=(64,),
     )
+    input_dim = 96 // 2  # this makes little sense, it relates to how the code used to work.
+
     batch_size = 5
     seq_len = 21
     # Just make sure the forward pass runs.
     f = c(
-        torch.randn(seq_len, batch_size, 64),
+        torch.randn(seq_len, batch_size, input_dim),
         torch.full((batch_size,), seq_len, dtype=torch.int64),
     )
     f[0].sum().backward()
     c.eval()
     f = c(
-        torch.randn(seq_len, batch_size, 64),
+        torch.randn(seq_len, batch_size, input_dim),
         torch.full((batch_size,), seq_len, dtype=torch.int64),
     )
     f  # to remove flake8 warnings
