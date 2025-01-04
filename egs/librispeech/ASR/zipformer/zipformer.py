@@ -485,10 +485,11 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = 0.66,
+        randomize_scale: FloatLike = 1.0,
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
+        self.name = None  # will be set from training loop
 
         self.randomize_scale = copy.deepcopy(randomize_scale)
         # self.bypass implements layer skipping as well as bypass; see its default values.
@@ -636,11 +637,22 @@ class Zipformer2EncoderLayer(nn.Module):
         xt = src + (ans - src) * t
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
         x1 = xt + (ans_t - xt) * (1. - t)
-        scale = float(self.randomize_scale) / (t - t**2)
-        diff = x1 - ans  # this is the difference between a 1-step and a 2-step version of x_1.
-                         # we want 'diff' to be zero.
-        rand = torch.randn_like(src) * scale * diff
+        diff = (x1 - ans) / (t - t**2)
+
+        diff_sqscale = (diff ** 2).mean(dim=2, keepdim=True)
+        G = 0.2      # scale on the global-mean part of the random-noise scale.
+        scale = float(self.randomize_scale)
+        diff_scale = (scale * G) * (diff_sqscale ** 2).mean().sqrt() + (scale * (1. - G)) * diff_sqscale.sqrt()
+        rand = torch.randn_like(src) * diff_scale
+        if random.random() < 0.01 or __name__ == '__main__':
+            # logging output
+            diff_scale = (diff ** 2).mean(dim=(0, 2)).sqrt()
+            t_flat = t.flatten()
+            values, indexes = t_flat.sort()
+            logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={(diff_sqscale**2).mean().sqrt()}")
+
         return ans + rand
+
 
 
     def forward_internal(
