@@ -642,14 +642,14 @@ class Zipformer2EncoderLayer(nn.Module):
         diff_sqscale = (diff ** 2).mean(dim=2, keepdim=True)
         G = 0.2      # scale on the global-mean part of the random-noise scale.
         scale = float(self.randomize_scale)
-        diff_scale = (scale * G) * (diff_sqscale ** 2).mean().sqrt() + (scale * (1. - G)) * diff_sqscale.sqrt()
+        diff_scale = (scale * G) * diff_sqscale.mean().sqrt() + (scale * (1. - G)) * diff_sqscale.sqrt()
         rand = torch.randn_like(src) * diff_scale
         if random.random() < 0.01 or __name__ == '__main__':
             # logging output
             diff_scale = (diff ** 2).mean(dim=(0, 2)).sqrt()
             t_flat = t.flatten()
             values, indexes = t_flat.sort()
-            logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={(diff_sqscale**2).mean().sqrt()}")
+            logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={diff_sqscale.mean().sqrt()}")
 
         return ans + rand
 
