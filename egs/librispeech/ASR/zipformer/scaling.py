@@ -565,11 +565,33 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
             torch.nn.init.uniform_(ans.bias, -0.1 * initial_scale, 0.1 * initial_scale)
     return ans
 
+class OrthogonalLinear(nn.Linear):
+    def __init__(num_channels: int, penalty_scale: FloatLike = 100.0):
+        # caution: the actual scale of the penalty will be affected by the grad_scale in fp16.
+        # the "effective scale" will be penalty_scale / grad_scale.
+        # we'll see whether this matters much in practice.
+        super().__init__(num_channels, num_channels, bias=False)
+        self.penalty_scale = penalty_scale
+
+    def forward(self, x: Tensor):
+        ans = nn.functional.linear(x, self.weight, self.bias)
+        if self.training and random.random() < 0.5:
+            weight = self.weight
+            if weight.shape[0] > weight.shape[1]:
+                weight = weight.t()
+            prod = torch.matmul(self.weight, self.weight.t())
+            err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
+            eps = 1.0e-10
+            penalty = float(self.penalty_scale) * (err ** 2).sum()
+            ans = with_loss(ans, penalty)
+        return ans
+
+
 def OrthogonalLinearDownsampling(num_channels: int):
     # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
     # that is suitable to use when downsampling; we reshape then multiply by this matrix.
     assert num_channels % 2 == 0
-    ans = nn.Linear(num_channels, num_channels, bias=False)
+    ans = OrthogonalLinear(num_channels)
     inv_sqrt2 = 2 ** -0.5
     N = num_channels // 2
     eye = inv_sqrt2 * torch.eye(N)
@@ -579,13 +601,13 @@ def OrthogonalLinearDownsampling(num_channels: int):
         ans.weight[:N, N:] = eye
         ans.weight[N:, :N] = -eye
         ans.weight[N:, N:] = eye
-    return torch.nn.utils.parametrizations.orthogonal(ans)
+    return ans
 
 def OrthogonalLinearUpsampling(num_channels: int):
     # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
     # that is suitable to use when downsampling; we multiply by this matrix then reshape.
     assert num_channels % 2 == 0
-    ans = nn.Linear(num_channels, num_channels, bias=False)
+    ans = OrthogonalLinear(num_channels)
     inv_sqrt2 = 2 ** -0.5
     N = num_channels // 2
     eye = inv_sqrt2 * torch.eye(N)
@@ -595,8 +617,7 @@ def OrthogonalLinearUpsampling(num_channels: int):
         ans.weight[:N, N:] = -eye
         ans.weight[N:, :N] = eye
         ans.weight[N:, N:] = eye
-    return torch.nn.utils.parametrizations.orthogonal(ans)
-
+    return ans
 
 
 class ChunkCausalDepthwiseConv1d(torch.nn.Module):
