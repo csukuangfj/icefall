@@ -580,7 +580,7 @@ class OrthogonalLinear(nn.Linear):
             weight = self.weight
             if weight.shape[0] > weight.shape[1]:
                 weight = weight.t()
-            prod = torch.matmul(self.weight, self.weight.t())
+            prod = torch.matmul(weight, weight.t())
             err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
             eps = 1.0e-10
             penalty = float(self.penalty_scale) * (err ** 2).sum()
