@@ -572,6 +572,7 @@ class OrthogonalLinear(nn.Linear):
         # we'll see whether this matters much in practice.
         super().__init__(num_channels, num_channels, bias=False)
         self.penalty_scale = penalty_scale
+        self.name = None  # will be set from training loop. for printing penalty.
 
     def forward(self, x: Tensor):
         ans = nn.functional.linear(x, self.weight, self.bias)
@@ -583,7 +584,7 @@ class OrthogonalLinear(nn.Linear):
             err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
             eps = 1.0e-10
             penalty = float(self.penalty_scale) * (err ** 2).sum()
-            ans = with_loss(ans, penalty)
+            ans = with_loss(ans, penalty, self.name)
         return ans
 
 
