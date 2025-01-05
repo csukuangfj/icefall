@@ -587,8 +587,8 @@ class OrthogonalLinear(nn.Linear):
         weight = self.weight
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
-        prod = torch.matmul(weight, weight.t())
-        err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
+        prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
+        err = prod / prod.diag().mean() - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
         err = (err ** 2).mean()
         noise_scale = penalty_scale * ans_scale * err
         if random.random() < 0.001 or __name__ == '__main__':
