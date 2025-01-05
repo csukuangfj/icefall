@@ -587,7 +587,8 @@ class OrthogonalLinear(nn.Linear):
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
-        err = prod / prod.diag().mean() - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
+        # detach the mean because in fp16 it may overflow; it doesn't affect the stable point.
+        err = prod / prod.diag().mean().detach() - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
         err = (err ** 2).sum()
         ans = with_loss(ans, err * float(self.penalty_scale), self.name)
         if random.random() < 0.001 or __name__ == '__main__':
