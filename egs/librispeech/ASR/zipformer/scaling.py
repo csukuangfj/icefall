@@ -17,6 +17,7 @@
 
 import logging
 import math
+import copy
 import random
 from typing import Optional, Tuple, Union
 
@@ -566,12 +567,9 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
     return ans
 
 class OrthogonalLinear(nn.Linear):
-    def __init__(self, num_channels: int, penalty_scale: FloatLike = 100.0):
-        # caution: the actual scale of the penalty will be affected by the grad_scale in fp16.
-        # the "effective scale" will be penalty_scale / grad_scale.
-        # we'll see whether this matters much in practice.
+    def __init__(self, num_channels: int, penalty_scale: FloatLike = 2.0):
         super().__init__(num_channels, num_channels, bias=False)
-        self.penalty_scale = penalty_scale
+        self.penalty_scale = copy.deepcopy(penalty_scale)
         self.name = None  # will be set from training loop. for printing penalty.
 
         # by default, initialize to the identity.
@@ -580,15 +578,22 @@ class OrthogonalLinear(nn.Linear):
 
     def forward(self, x: Tensor):
         ans = nn.functional.linear(x, self.weight, self.bias)
-        if self.training and random.random() < 0.5:
-            weight = self.weight
-            if weight.shape[0] > weight.shape[1]:
-                weight = weight.t()
-            prod = torch.matmul(weight, weight.t())
-            err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
-            eps = 1.0e-10
-            penalty = float(self.penalty_scale) * (err ** 2).sum()
-            ans = with_loss(ans, penalty, self.name)
+        if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
+            return ans
+        penalty_scale = float(self.penalty_scale)
+        if penalty_scale == 0.0:
+            return ans
+        ans_scale = (ans ** 2).mean()
+        weight = self.weight
+        if weight.shape[0] > weight.shape[1]:
+            weight = weight.t()
+        prod = torch.matmul(weight, weight.t())
+        err = prod - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
+        err = (err ** 2).mean()
+        noise_scale = penalty_scale * ans_scale * err
+        if random.random() < 0.001 or __name__ == '__main__':
+            logging.info(f"noise_scale = {noise_scale.item()} = {penalty_scale}*{ans_scale.item()}*{err.item()}")
+        ans = ans + noise_scale * torch.randn_like(ans)
         return ans
 
 
@@ -1952,6 +1957,11 @@ def _test_activation_dropout_and_linear():
                 # storage of it.
                 assert isclose(x1.grad, x2.grad)
 
+def _test_orthogonal_linear():
+    for t in (OrthogonalLinear, OrthogonalLinearUpsampling, OrthogonalLinearDownsampling):
+        m = t(128)
+        m(torch.randn(30, 2, 128))
+
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)
@@ -1966,3 +1976,4 @@ if __name__ == "__main__":
     _test_swooshr_deriv()
     _test_swooshl_deriv()
     _test_activation_dropout_and_linear()
+    _test_orthogonal_linear()
