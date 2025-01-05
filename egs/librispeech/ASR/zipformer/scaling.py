@@ -592,7 +592,7 @@ class OrthogonalLinear(nn.Linear):
         err = (err ** 2).mean()
         noise_scale = penalty_scale * ans_scale * err
         if random.random() < 0.001 or __name__ == '__main__':
-            logging.info(f"noise_scale = {noise_scale.item()} = {penalty_scale}*{ans_scale.item()}*{err.item()}")
+            logging.info(f"{self.name}: noise_scale = {noise_scale.item()} = {penalty_scale}*{ans_scale.item()}*{err.item()}")
         ans = ans + noise_scale * torch.randn_like(ans)
         return ans
 
