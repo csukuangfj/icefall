@@ -571,7 +571,7 @@ class OrthogonalLinear(nn.Linear):
         super().__init__(num_channels, num_channels, bias=False)
         self.penalty_scale = copy.deepcopy(penalty_scale)
         self.max_product_scale = 100.0
-        self.product_scale = nn.Parameter(torch.tensor(1.0))
+        self.product_scale = nn.Parameter(torch.tensor(0.0))
         self.name = None  # will be set from training loop. for printing penalty.
 
         # by default, initialize to the identity.
@@ -590,12 +590,12 @@ class OrthogonalLinear(nn.Linear):
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
         # detach the mean because in fp16 it may overflow; it doesn't affect the stable point.
-        product_scale = limit_param_value(self.product_scale, min=0.1, max=self.max_product_scale)
+        product_scale = limit_param_value(self.product_scale.exp(), min=0.1, max=self.max_product_scale)
         err = prod * product_scale - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
         err = (err ** 2).sum()
         ans = with_loss(ans, err * penalty_scale, self.name)
         if random.random() < 0.001 or __name__ == '__main__':
-            logging.info(f"{self.name}: 1/product_scale={1/self.product_scale}, dim={weight.shape}, avg_err = {err*float(self.penalty_scale)}={err}*{float(self.penalty_scale)}")
+            logging.info(f"{self.name}: 1/product_scale={1/product_scale}, dim={weight.shape}, avg_err = {err*float(self.penalty_scale)}={err}*{float(self.penalty_scale)}")
         return ans
 
 def OrthogonalLinearDownsampling(num_channels: int):
