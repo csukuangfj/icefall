@@ -566,13 +566,17 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
     return ans
 
 class OrthogonalLinear(nn.Linear):
-    def __init__(num_channels: int, penalty_scale: FloatLike = 100.0):
+    def __init__(self, num_channels: int, penalty_scale: FloatLike = 100.0):
         # caution: the actual scale of the penalty will be affected by the grad_scale in fp16.
         # the "effective scale" will be penalty_scale / grad_scale.
         # we'll see whether this matters much in practice.
         super().__init__(num_channels, num_channels, bias=False)
         self.penalty_scale = penalty_scale
         self.name = None  # will be set from training loop. for printing penalty.
+
+        # by default, initialize to the identity.
+        with torch.no_grad():
+            self.weight[:] = torch.eye(num_channels)
 
     def forward(self, x: Tensor):
         ans = nn.functional.linear(x, self.weight, self.bias)
