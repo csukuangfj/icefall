@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 from encoder_interface import EncoderInterface
-from scaling2 import (
+from scaling import (
     Identity,  # more friendly to backward hooks than nn.Identity(), for diagnostic reasons.
     OrthogonalLinearUpsampling,
     OrthogonalLinearDownsampling,
