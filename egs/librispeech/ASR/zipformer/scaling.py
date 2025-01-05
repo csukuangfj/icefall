@@ -567,7 +567,7 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
     return ans
 
 class OrthogonalLinear(nn.Linear):
-    def __init__(self, num_channels: int, penalty_scale: FloatLike = 2.0):
+    def __init__(self, num_channels: int, penalty_scale: FloatLike = 1000.0):
         super().__init__(num_channels, num_channels, bias=False)
         self.penalty_scale = copy.deepcopy(penalty_scale)
         self.name = None  # will be set from training loop. for printing penalty.
@@ -583,19 +583,16 @@ class OrthogonalLinear(nn.Linear):
         penalty_scale = float(self.penalty_scale)
         if penalty_scale == 0.0:
             return ans
-        ans_scale = (ans ** 2).mean()
         weight = self.weight
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
         err = prod / prod.diag().mean() - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
-        err = (err ** 2).mean()
-        noise_scale = penalty_scale * ans_scale * err
+        err = (err ** 2).sum()
+        ans = with_loss(ans, err * float(self.penalty_scale), self.name)
         if random.random() < 0.001 or __name__ == '__main__':
-            logging.info(f"{self.name}: noise_scale = {noise_scale.item()} = {penalty_scale}*{ans_scale.item()}*{err.item()}")
-        ans = ans + noise_scale * torch.randn_like(ans)
+            logging.info(f"{self.name}: dim={weight.shape}, avg_err = {err*float(self.penalty_scale)}={err}*{float(self.penalty_scale)}")
         return ans
-
 
 def OrthogonalLinearDownsampling(num_channels: int):
     # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
