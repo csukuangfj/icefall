@@ -589,11 +589,13 @@ class OrthogonalLinear(nn.Linear):
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
-        # detach the mean because in fp16 it may overflow; it doesn't affect the stable point.
-        product_scale = limit_param_value(self.product_scale.exp(), min=0.1, max=self.max_product_scale)
-        err = prod * product_scale - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
-        err = (err ** 2).sum()
-        ans = with_loss(ans, err * penalty_scale, self.name)
+        with torch.cuda.amp.autocast(enabled=False):
+            # disabling autocast is to prevent the grad of product_scale from overflowing.
+            # detach the mean because in fp16 it may overflow; it doesn't affect the stable point.
+            product_scale = limit_param_value(self.product_scale.exp(), min=0.1, max=self.max_product_scale)
+            err = prod * product_scale - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
+            err = (err ** 2).sum()
+            ans = with_loss(ans, err * penalty_scale, self.name)
         if random.random() < 0.001 or __name__ == '__main__':
             logging.info(f"{self.name}: 1/product_scale={1/product_scale}, dim={weight.shape}, avg_err = {err*float(self.penalty_scale)}={err}*{float(self.penalty_scale)}")
         return ans
