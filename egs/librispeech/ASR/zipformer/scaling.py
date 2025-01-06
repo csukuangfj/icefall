@@ -570,8 +570,7 @@ class OrthogonalLinear(nn.Linear):
     def __init__(self, num_channels: int, penalty_scale: FloatLike = 1000.0):
         super().__init__(num_channels, num_channels, bias=False)
         self.penalty_scale = copy.deepcopy(penalty_scale)
-        self.max_product_scale = 100.0
-        self.product_scale = nn.Parameter(torch.tensor(0.0))
+        self.min_product_scale = 0.01
         self.name = None  # will be set from training loop. for printing penalty.
 
         # by default, initialize to the identity.
@@ -589,15 +588,19 @@ class OrthogonalLinear(nn.Linear):
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
-        with torch.cuda.amp.autocast(enabled=False):
-            # disabling autocast is to prevent the grad of product_scale from overflowing.
-            # detach the mean because in fp16 it may overflow; it doesn't affect the stable point.
-            product_scale = limit_param_value(self.product_scale.exp(), min=0.1, max=self.max_product_scale)
-            err = prod * product_scale - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)
-            err = (err ** 2).sum()
-            ans = with_loss(ans, err * penalty_scale, self.name)
+        with torch.no_grad():
+            alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
+            alpha = alpha.clamp_(max=1. / self.min_product_scale)
+
+        # following is equivalent to penalty_scale ((prod * alpha - I) **
+        # 2).sum(), but more memory and compute efficient.
+        err = ((prod ** 2).sum() * (alpha ** 2 * penalty_scale) +
+               (-2 * alpha * penalty_scale) * prod.diag().sum() +
+               (prod.shape[0] ** 2 * penalty_scale))
+
+        ans = with_loss(ans, err, self.name)
         if random.random() < 0.001 or __name__ == '__main__':
-            logging.info(f"{self.name}: 1/product_scale={1/product_scale}, dim={weight.shape}, avg_err = {err*float(self.penalty_scale)}={err}*{float(self.penalty_scale)}")
+            logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} = {err/penalty_scale}*{penalty_scale}")
         return ans
 
 def OrthogonalLinearDownsampling(num_channels: int):
