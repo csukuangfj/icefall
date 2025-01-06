@@ -1182,6 +1182,7 @@ class WithLoss(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor, y: Tensor, name: str):
         ctx.y_shape = y.shape
+        ctx.dtype = y.dtype
         if random.random() < 0.002 and name is not None:
             loss_sum = y.sum().item()
             logging.info(f"WithLoss: name={name}, loss-sum={loss_sum:.3e}")
@@ -1191,7 +1192,7 @@ class WithLoss(torch.autograd.Function):
     def backward(ctx, ans_grad: Tensor):
         return (
             ans_grad,
-            torch.ones(ctx.y_shape, dtype=ans_grad.dtype, device=ans_grad.device),
+            torch.ones(ctx.y_shape, dtype=ctx.dtype, device=ans_grad.device),
             None,
         )
 
