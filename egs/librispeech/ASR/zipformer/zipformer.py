@@ -539,14 +539,6 @@ class Zipformer2EncoderLayer(nn.Module):
 
         self.norm = BiasNorm(embed_dim)
 
-        self.balancer1 = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.45,
-            max_positive=0.55,
-            min_abs=0.2,
-            max_abs=4.0,
-        )
 
         # balancer for output of NonlinAttentionModule
         self.balancer_na = Balancer(
@@ -581,22 +573,6 @@ class Zipformer2EncoderLayer(nn.Module):
             prob=0.05,
         )
 
-        self.whiten = Whiten(
-            num_groups=1,
-            whitening_limit=_whitening_schedule(4.0, ratio=3.0),
-            prob=(0.025, 0.25),
-            grad_scale=0.01,
-        )
-
-        self.balancer2 = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.45,
-            max_positive=0.55,
-            min_abs=0.1,
-            max_abs=4.0,
-        )
-
     def forward(
         self,
         src: Tensor,
@@ -625,7 +601,7 @@ class Zipformer2EncoderLayer(nn.Module):
         ans = self.forward_internal(src, pos_emb, chunk_size,
                                     attn_mask, src_key_padding_mask)
         if not (randomize and self.training):
-            return ans
+            return self.norm(ans)
 
         # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
         # situation, and we compute an alternative version of x1 (called "x1" in the code)
@@ -651,7 +627,7 @@ class Zipformer2EncoderLayer(nn.Module):
             values, indexes = t_flat.sort()
             logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={diff_sqscale.mean().sqrt()}")
 
-        return ans + rand
+        return self.norm(ans + rand)
 
 
 
@@ -710,13 +686,7 @@ class Zipformer2EncoderLayer(nn.Module):
         )
         src = src + self.balancer_ff3(self.feed_forward3(src))
 
-        src = self.balancer1(src)
-        src = self.norm(src)
-
         src = self.bypass(src_orig, src)
-
-        src = self.balancer2(src)
-        src = self.whiten(src)
 
         return src
 
