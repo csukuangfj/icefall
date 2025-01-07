@@ -485,7 +485,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = 1.0,
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 1.5), (20000.0, 0.66)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -600,7 +600,7 @@ class Zipformer2EncoderLayer(nn.Module):
         """
         ans = self.forward_internal(src, pos_emb, chunk_size,
                                     attn_mask, src_key_padding_mask)
-        if not (randomize and self.training):
+        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (randomize and self.training):
             return self.norm(ans)
 
         # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
@@ -611,20 +611,21 @@ class Zipformer2EncoderLayer(nn.Module):
         (seq_len, batch_size, emb_dim) = src.shape
         t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 0.9)
         xt = src + (ans - src) * t
+        # ans_t is the network evaluated at t.  it's interpreted as xt + vt.
         ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
         x1 = xt + (ans_t - xt) * (1. - t)
         diff = (x1 - ans) / (t - t**2)
 
         diff_sqscale = (diff ** 2).mean(dim=2, keepdim=True)
-        G = 0.2      # scale on the global-mean part of the random-noise scale.
+        G = 0.1      # scale on the global-mean part of the random-noise scale.
         scale = float(self.randomize_scale)
-        diff_scale = (scale * G) * diff_sqscale.mean().sqrt() + (scale * (1. - G)) * diff_sqscale.sqrt()
+        with torch.cuda.amp.autocast(enabled=False):
+            diff_scale = ((scale * G) * diff_sqscale.to(torch.float).mean() + (scale * (1. - G)) * diff_sqscale).sqrt()
         rand = torch.randn_like(src) * diff_scale
-        if random.random() < 0.01 or __name__ == '__main__':
+        if random.random() < 0.001 or __name__ == '__main__':
             # logging output
-            diff_scale = (diff ** 2).mean(dim=(0, 2)).sqrt()
-            t_flat = t.flatten()
-            values, indexes = t_flat.sort()
+            diff_scale = (diff ** 2).mean(dim=(0, 2)).sqrt()  # mean over all non-batch dims.
+            values, indexes = t.flatten().sort()
             logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={diff_sqscale.mean().sqrt()}")
 
         return self.norm(ans + rand)
@@ -869,7 +870,7 @@ class Zipformer2Encoder(nn.Module):
         if num_channels > layer_dim:
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
-        invertible_layer = random.randint(0, len(self.layers))
+        randomize_layer = random.randint(0, len(self.layers) - 1)
         for i, mod in enumerate(self.layers):
             src = mod(
                 src,
@@ -877,7 +878,7 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
-                randomize=(i == invertible_layer),
+                randomize=(i == randomize_layer),
             )
 
         if num_channels > layer_dim:
@@ -1226,7 +1227,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         self.dropout = dropout
         self.name = None  # will be overwritten in training code; for diagnostics.
 
-        self.attn_score_limit = copy.deepcopy(ScheduledFloat((0.0, 5.0), (40000.0, 20.0)))
+        self.attn_score_limit = ScheduledFloat((0.0, 5.0), (5000.0, 20.0))
+        self.attn_score_penalty_prob = ScheduledFloat((0.0, 1.0), (5000.0, 1.0), (5001.0, 0.1))
 
         key_head_dim = query_head_dim
         in_proj_dim = (query_head_dim + key_head_dim + pos_head_dim) * num_heads
@@ -1369,7 +1371,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
 
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             pass
-        elif self.training and random.random() < 0.1:
+        elif self.training and random.random() < float(self.attn_score_penalty_prob):
             # This is a harder way of limiting the attention scores to not be
             # too large.  It incurs a penalty if any of them has an absolute
             # value greater than 50.0.  this should be outside the normal range
