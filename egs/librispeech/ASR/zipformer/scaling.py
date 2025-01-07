@@ -596,7 +596,7 @@ class OrthogonalLinear(nn.Linear):
         # 2).sum(), but more memory and compute efficient.
         err = ((prod ** 2).sum() * (alpha ** 2 * penalty_scale) +
                (-2 * alpha * penalty_scale) * prod.diag().sum() +
-               (prod.shape[0] ** 2 * penalty_scale))
+               (prod.shape[0] * penalty_scale))
 
         ans = with_loss(ans, err, self.name)
         if random.random() < 0.001 or __name__ == '__main__':
