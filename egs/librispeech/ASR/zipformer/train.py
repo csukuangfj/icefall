@@ -1169,6 +1169,8 @@ def train_one_epoch(
                 if not saved_bad_model:
                     save_bad_model(suffix="-first-warning")
                     saved_bad_model = True
+                    if not params.inf_check:
+                        register_inf_check_hooks(model)
                 logging.warning(f"Grad scale is small: {cur_grad_scale}")
             if cur_grad_scale < 1.0e-05:
                 save_bad_model()
