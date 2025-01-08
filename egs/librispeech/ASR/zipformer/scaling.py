@@ -588,19 +588,24 @@ class OrthogonalLinear(nn.Linear):
         if weight.shape[0] > weight.shape[1]:
             weight = weight.t()
         prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
+        # could include penalty_scale later on, but we do it at this point to make overflow of
+        # grads less likely (because they are aggregated earlier on, via sum()).
+        prod = scale_grad(prod, penalty_scale)
         with torch.no_grad():
             alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
             alpha = alpha.clamp_(max=1. / self.min_product_scale)
 
         # following is equivalent to penalty_scale ((prod * alpha - I) **
         # 2).sum(), but more memory and compute efficient.
-        err = ((prod ** 2).sum() * (alpha ** 2 * penalty_scale) +
-               (-2 * alpha * penalty_scale) * prod.diag().sum() +
-               (prod.shape[0] * penalty_scale))
+        err = ((prod ** 2).sum() * (alpha ** 2) +
+               (-2 * alpha) * prod.diag().sum() +
+               prod.shape[0])
 
         ans = with_loss(ans, err, self.name)
         if random.random() < 0.001 or __name__ == '__main__':
-            logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} = {err/penalty_scale}*{penalty_scale}")
+            with torch.no_grad():
+                ans_rms = (ans ** 2).mean().sqrt()
+            logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} * {penalty_scale} = {err*penalty_scale}, ans-rms={ans_rms}")
         return ans
 
 def OrthogonalLinearDownsampling(num_channels: int):
