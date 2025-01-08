@@ -622,11 +622,11 @@ class Zipformer2EncoderLayer(nn.Module):
         with torch.cuda.amp.autocast(enabled=False):
             diff_scale = ((scale * G) * diff_sqscale.to(torch.float).mean() + (scale * (1. - G)) * diff_sqscale).sqrt()
         rand = torch.randn_like(src) * diff_scale
-        if random.random() < 0.001 or __name__ == '__main__':
+        if random.random() < 0.01 or __name__ == '__main__':
             # logging output
-            diff_scale = (diff ** 2).mean(dim=(0, 2)).sqrt()  # mean over all non-batch dims.
-            values, indexes = t.flatten().sort()
-            logging.info(f"name={self.name}: diff_scale={diff_scale[indexes]}, t={values}; global-scale={diff_sqscale.mean().sqrt()}")
+            ans_scale = (ans ** 2).mean().sqrt()
+            vt_scale = ((ans - src) ** 2).mean().sqrt()
+            logging.info(f"name={self.name}: ans_scale={ans_scale}, vt_scale={vt_scale}, diff-scale={diff_sqscale.mean().sqrt()}")
 
         return self.norm(ans + rand)
 
