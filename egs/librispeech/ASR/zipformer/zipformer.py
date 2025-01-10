@@ -580,7 +580,9 @@ class Zipformer2EncoderLayer(nn.Module):
         chunk_size: int = -1,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
-        randomize_factor: float = 0.0, # will be 1/(num-layers-this-stack) if randomizing, else 0.
+        randomize_factor: float = 0.0, # will be 1/(probability with which we
+                                       # randomized this layer) if randomizing,
+                                       # else 0.
     ) -> Tensor:
         """
             Pass the input through the encoder layer.
@@ -870,8 +872,13 @@ class Zipformer2Encoder(nn.Module):
         if num_channels > layer_dim:
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
+
+        randomize_proportion = 0.25
         L = len(self.layers)
-        randomize_layer = random.randint(0, L - 1)
+        # int(...) rounds down.  we'll only randomize >= 2 layers if L >= 8.
+        num_randomize = max(1, int(0.5 + L * randomize_proportion))
+        randomize_layer = [ True ] * num_randomize + [ False ] * (L - num_randomize)
+        random.shuffle(randomize_layer)
         for i, mod in enumerate(self.layers):
             src = mod(
                 src,
@@ -879,11 +886,10 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
-                randomize_factor=L ** -0.5 if i == randomize_layer else 0,
+                randomize_factor=(L / num_randomize) if randomize_layer[i] else 0,
             )
-            # the L ** -0.5 factor assumes that the "penalty" we pay in the loss
-            # will be proportioal to the square of the stddev, i.e. proportional
-            # to the noise variance.
+            # randomize_factor can be viewed as a simple version of an
+            # importance-sampling factor.
 
         if num_channels > layer_dim:
             src = torch.cat((src, bypass), dim=-1)
