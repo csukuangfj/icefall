@@ -375,6 +375,7 @@ class BiasNormFunction(torch.autograd.Function):
         ctx,
         x: Tensor,
         bias: Tensor,
+        log_eps: Tensor,
         log_scale: Tensor,
         channel_dim: int,
         store_output_for_backprop: bool,
@@ -387,7 +388,8 @@ class BiasNormFunction(torch.autograd.Function):
         for _ in range(channel_dim + 1, x.ndim):
             bias = bias.unsqueeze(-1)
         scales = (
-            torch.mean((x - bias) ** 2, dim=channel_dim, keepdim=True) ** -0.5
+            torch.mean((x - bias) ** 2 + log_eps.exp(),
+                       dim=channel_dim, keepdim=True) ** -0.5
         ) * log_scale.exp()
         ans = x * scales
         ctx.save_for_backward(
@@ -395,28 +397,33 @@ class BiasNormFunction(torch.autograd.Function):
             scales.detach(),
             bias.detach(),
             log_scale.detach(),
+            log_eps.detach(),
         )
         return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        ans_or_x, scales, bias, log_scale = ctx.saved_tensors
+        ans_or_x, scales, bias, log_scale, log_eps = ctx.saved_tensors
         if ctx.store_output_for_backprop:
             x = ans_or_x / scales
         else:
             x = ans_or_x
         x = x.detach()
-        x.requires_grad = True
-        bias.requires_grad = True
-        log_scale.requires_grad = True
-        with torch.enable_grad():
-            # recompute scales from x, bias and log_scale.
-            scales = (
-                torch.mean((x - bias) ** 2, dim=ctx.channel_dim, keepdim=True) ** -0.5
-            ) * log_scale.exp()
-            ans = x * scales
-            ans.backward(gradient=ans_grad)
-        return x.grad, bias.grad.flatten(), log_scale.grad, None, None
+        with torch.cuda.amp.autocast(enabled=False):
+            x.requires_grad = True
+            bias.requires_grad = True
+            log_scale.requires_grad = True
+            log_eps.requires_grad = True
+            with torch.enable_grad():
+                # recompute scales from x, bias and log_scale.
+                scales = (
+                    torch.mean((x - bias) ** 2 + log_eps.exp(),
+                               dim=ctx.channel_dim, keepdim=True) ** -0.5
+                ) * log_scale.exp()
+                ans = x * scales
+                ans.backward(gradient=ans_grad)
+
+        return x.grad, bias.grad.flatten(), log_eps.grad, log_scale.grad, None, None
 
 
 class BiasNorm(torch.nn.Module):
@@ -430,7 +437,8 @@ class BiasNorm(torch.nn.Module):
     LayerNorm are required to allow it to do this.
 
     Instead, we give the BiasNorm a trainable bias that it can use when
-    computing the scale for normalization.  We also give it a (scalar)
+    computing the scale for normalization, in addition to a separate trainable
+    "eps" parameter, learned in log-space.  We also give it a (scalar)
     trainable scale on the output.
 
 
@@ -464,6 +472,7 @@ class BiasNorm(torch.nn.Module):
         self.channel_dim = channel_dim
         self.log_scale = nn.Parameter(torch.tensor(log_scale))
         self.bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
+        self.log_eps = nn.Parameter(torch.tensor(0.0))
 
         self.log_scale_min = log_scale_min
         self.log_scale_max = log_scale_max
@@ -481,7 +490,8 @@ class BiasNorm(torch.nn.Module):
             for _ in range(channel_dim + 1, x.ndim):
                 bias = bias.unsqueeze(-1)
             scales = (
-                torch.mean((x - bias) ** 2, dim=channel_dim, keepdim=True) ** -0.5
+                torch.mean((x - bias) ** 2 + self.log_eps.exp(),
+                           dim=channel_dim, keepdim=True) ** -0.5
             ) * self.log_scale.exp()
             return x * scales
 
@@ -491,10 +501,17 @@ class BiasNorm(torch.nn.Module):
             max=float(self.log_scale_max),
             training=self.training,
         )
+        log_eps = limit_param_value(
+            self.log_eps,
+            min=-5, max=5,  # mainly to prevent infinities and zeroes
+            training=self.training,
+        )
 
         return BiasNormFunction.apply(
-            x, self.bias, log_scale, self.channel_dim, self.store_output_for_backprop
+            x, self.bias, self.log_eps, log_scale, self.channel_dim, self.store_output_for_backprop
         )
+
+
 
 
 def ScaledLinear(*args, initial_scale: float = 1.0, **kwargs) -> nn.Linear:
