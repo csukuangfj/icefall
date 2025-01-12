@@ -1076,8 +1076,12 @@ class InvertibleDownsample(torch.nn.Module):
         # each other as if they were two different channels.
         src = torch.stack((src[0::2], src[1::2]), dim=-1)
         src = src.reshape(seq_len // 2, batch_size, in_channels * 2)
-
-
+        proj_channels = self.proj.weight.shape[0]
+        if proj_channels < in_channels * 2:
+            src = torch.cat((self.proj(src[..., :proj_channels]), src[..., proj_channels:]),
+                            dim=-1)
+        else:
+            src = self.proj(src)
         return src
 
 class InvertibleUpsample(torch.nn.Module):

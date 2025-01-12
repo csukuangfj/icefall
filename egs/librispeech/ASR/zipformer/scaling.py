@@ -639,6 +639,9 @@ def OrthogonalLinearSpecial(num_channels: int, penalty_scale: float = 1000.0):
         ans.weight[0::2, 1::2] = inv_sqrt2
         ans.weight[1::2, 0::2] = inv_sqrt2
         ans.weight[1::2, 1::2] = -inv_sqrt2
+        N = ans.weight.shape[0]
+        ans.weight *= (torch.arange(N)[:, None] // 2 ==
+                       torch.arange(N)[None, :] // 2)
 
     return ans
 
