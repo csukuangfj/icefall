@@ -365,7 +365,7 @@ class MaxEigLimiterFunction(torch.autograd.Function):
 
 class BiasNormFunction(torch.autograd.Function):
     # This computes:
-    #   scales = (torch.mean((x - bias) ** 2, keepdim=True)) ** -0.5 * log_scale.exp()
+    #   scales = (torch.mean(x ** 2 + log_eps.exp(), keepdim=True)) ** -0.5 * log_scale.exp()
     #   return x * scales
     # (after unsqueezing the bias), but it does it in a memory-efficient way so that
     # it can just store the returned value (chances are, this will also be needed for
@@ -374,28 +374,21 @@ class BiasNormFunction(torch.autograd.Function):
     def forward(
         ctx,
         x: Tensor,
-        bias: Tensor,
         log_eps: Tensor,
         log_scale: Tensor,
         channel_dim: int,
-        store_output_for_backprop: bool,
     ) -> Tensor:
-        assert bias.ndim == 1
         if channel_dim < 0:
             channel_dim = channel_dim + x.ndim
-        ctx.store_output_for_backprop = store_output_for_backprop
         ctx.channel_dim = channel_dim
-        for _ in range(channel_dim + 1, x.ndim):
-            bias = bias.unsqueeze(-1)
         scales = (
-            torch.mean((x - bias) ** 2 + log_eps.exp(),
+            torch.mean(x ** 2 + log_eps.exp(),
                        dim=channel_dim, keepdim=True) ** -0.5
         ) * log_scale.exp()
         ans = x * scales
         ctx.save_for_backward(
-            ans.detach() if store_output_for_backprop else x,
+            x,
             scales.detach(),
-            bias.detach(),
             log_scale.detach(),
             log_eps.detach(),
         )
@@ -403,27 +396,22 @@ class BiasNormFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        ans_or_x, scales, bias, log_scale, log_eps = ctx.saved_tensors
-        if ctx.store_output_for_backprop:
-            x = ans_or_x / scales
-        else:
-            x = ans_or_x
+        x, scales, log_scale, log_eps = ctx.saved_tensors
         x = x.detach()
         with torch.cuda.amp.autocast(enabled=False):
             x.requires_grad = True
-            bias.requires_grad = True
             log_scale.requires_grad = True
             log_eps.requires_grad = True
             with torch.enable_grad():
-                # recompute scales from x, bias and log_scale.
+                # recompute scales from x, log_eps and log_scale.
                 scales = (
-                    torch.mean((x - bias) ** 2 + log_eps.exp(),
+                    torch.mean(x ** 2 + log_eps.exp(),
                                dim=ctx.channel_dim, keepdim=True) ** -0.5
                 ) * log_scale.exp()
                 ans = x * scales
                 ans.backward(gradient=ans_grad)
 
-        return x.grad, bias.grad.flatten(), log_eps.grad, log_scale.grad, None, None
+        return x.grad, log_eps.grad, log_scale.grad, None, None
 
 
 class BiasNorm(torch.nn.Module):
@@ -452,10 +440,6 @@ class BiasNorm(torch.nn.Module):
          is learnable.
       log_scale_min: FloatLike, minimum allowed value of log_scale
       log_scale_max: FloatLike, maximum allowed value of log_scale
-      store_output_for_backprop: only possibly affects memory use; recommend
-         to set to True if you think the output of this module is more likely
-         than the input of this module to be required to be stored for the
-         backprop.
     """
 
     def __init__(
@@ -465,35 +449,32 @@ class BiasNorm(torch.nn.Module):
         log_scale: float = 1.0,
         log_scale_min: float = -1.5,
         log_scale_max: float = 1.5,
-        store_output_for_backprop: bool = False,
     ) -> None:
         super(BiasNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
         self.log_scale = nn.Parameter(torch.tensor(log_scale))
-        self.bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
+        self.in_bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
+        self.out_bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
         self.log_eps = nn.Parameter(torch.tensor(0.0))
 
         self.log_scale_min = log_scale_min
         self.log_scale_max = log_scale_max
 
-        self.store_output_for_backprop = store_output_for_backprop
-
     def forward(self, x: Tensor) -> Tensor:
         assert x.shape[self.channel_dim] == self.num_channels
+
+        x = x + self.in_bias
 
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             channel_dim = self.channel_dim
             if channel_dim < 0:
                 channel_dim += x.ndim
-            bias = self.bias
-            for _ in range(channel_dim + 1, x.ndim):
-                bias = bias.unsqueeze(-1)
             scales = (
-                torch.mean((x - bias) ** 2 + self.log_eps.exp(),
+                torch.mean(x ** 2 + self.log_eps.exp(),
                            dim=channel_dim, keepdim=True) ** -0.5
             ) * self.log_scale.exp()
-            return x * scales
+            return (x * scales) + self.out_bias
 
         log_scale = limit_param_value(
             self.log_scale,
@@ -508,8 +489,8 @@ class BiasNorm(torch.nn.Module):
         )
 
         return BiasNormFunction.apply(
-            x, self.bias, self.log_eps, log_scale, self.channel_dim, self.store_output_for_backprop
-        )
+            x, self.log_eps, log_scale, self.channel_dim
+        ) + self.out_bias
 
 
 
