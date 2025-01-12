@@ -377,26 +377,33 @@ class BiasNormFunction(torch.autograd.Function):
         log_eps: Tensor,
         log_scale: Tensor,
         channel_dim: int,
+        log_eps_noise: float
     ) -> Tensor:
         if channel_dim < 0:
             channel_dim = channel_dim + x.ndim
         ctx.channel_dim = channel_dim
+
+        noise_shape = list(x.shape)
+        noise_shape[channel_dim] = 1
+        eps_noise = torch.randn_like(x) * log_eps_noise
+
         scales = (
-            torch.mean(x ** 2 + log_eps.exp(),
+            torch.mean(x ** 2 + log_eps.exp() + eps_noise,
                        dim=channel_dim, keepdim=True) ** -0.5
-        ) * log_scale.exp()
+        ) * (0.5 * eps_noise + log_scale).exp()
         ans = x * scales
         ctx.save_for_backward(
             x,
             scales.detach(),
             log_scale.detach(),
             log_eps.detach(),
+            eps_noise.detach(),
         )
         return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, scales, log_scale, log_eps = ctx.saved_tensors
+        x, scales, log_scale, log_eps, eps_noise = ctx.saved_tensors
         x = x.detach()
         with torch.cuda.amp.autocast(enabled=False):
             x.requires_grad = True
@@ -405,13 +412,13 @@ class BiasNormFunction(torch.autograd.Function):
             with torch.enable_grad():
                 # recompute scales from x, log_eps and log_scale.
                 scales = (
-                    torch.mean(x ** 2 + log_eps.exp(),
+                    torch.mean(x ** 2 + log_eps.exp() + eps_noise,
                                dim=ctx.channel_dim, keepdim=True) ** -0.5
-                ) * log_scale.exp()
+                ) * (0.5 * eps_noise + log_scale).exp()
                 ans = x * scales
                 ans.backward(gradient=ans_grad)
 
-        return x.grad, log_eps.grad, log_scale.grad, None, None
+        return x.grad, log_eps.grad, log_scale.grad, None, None, None
 
 
 class BiasNorm(torch.nn.Module):
@@ -458,6 +465,11 @@ class BiasNorm(torch.nn.Module):
         self.out_bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
         self.log_eps = nn.Parameter(torch.tensor(0.0))
 
+        # scale on noise we add to log_eps as part of a mechanism to encourage it to stay relatively large
+        # compared to x.
+        self.log_eps_noise = ScheduledFloat((0.0, 0.05), (20000.0, 0.02), default=0.0)
+        self.name = None
+
         self.log_scale_min = log_scale_min
         self.log_scale_max = log_scale_max
 
@@ -488,8 +500,14 @@ class BiasNorm(torch.nn.Module):
             training=self.training,
         )
 
+        if random.random() < 0.002:
+            x_rms = (x ** 2).mean().sqrt()
+            in_bias_rms = (self.in_bias ** 2).mean().sqrt()
+            out_bias_rms = (self.out_bias ** 2).mean().sqrt()
+            logging.info(f"name={self.name}: x_rms={x_rms}, in_bias_rms={in_bias_rms}, out_bias_rms={out_bias_rms}, log_scale={self.log_scale.item()}, log_eps_noise={self.log_eps_noise.item()}")
+
         return BiasNormFunction.apply(
-            x, self.log_eps, log_scale, self.channel_dim
+            x, self.log_eps, log_scale, self.channel_dim, float(self.log_eps_noise),
         ) + self.out_bias
 
 
