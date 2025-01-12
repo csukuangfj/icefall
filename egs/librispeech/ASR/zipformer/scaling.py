@@ -504,7 +504,7 @@ class BiasNorm(torch.nn.Module):
             x_rms = (x ** 2).mean().sqrt()
             in_bias_rms = (self.in_bias ** 2).mean().sqrt()
             out_bias_rms = (self.out_bias ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: x_rms={x_rms}, in_bias_rms={in_bias_rms}, out_bias_rms={out_bias_rms}, log_scale={self.log_scale.item()}, log_eps_noise={self.log_eps_noise.item()}")
+            logging.info(f"name={self.name}: x_rms={x_rms}, in_bias_rms={in_bias_rms}, out_bias_rms={out_bias_rms}, log_scale={self.log_scale.item()}, log_eps={self.log_eps.item()}")
 
         return BiasNormFunction.apply(
             x, self.log_eps, log_scale, self.channel_dim, float(self.log_eps_noise),
