@@ -625,36 +625,21 @@ class OrthogonalLinear(nn.Linear):
             logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} * {penalty_scale} = {err*penalty_scale}, ans-rms={ans_rms}")
         return ans
 
-def OrthogonalLinearDownsampling(num_channels: int):
+def OrthogonalLinearSpecial(num_channels: int, penalty_scale: float = 1000.0):
     # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
     # that is suitable to use when downsampling; we reshape then multiply by this matrix.
     assert num_channels % 2 == 0
-    ans = OrthogonalLinear(num_channels)
-    inv_sqrt2 = 2 ** -0.5
-    N = num_channels // 2
-    eye = inv_sqrt2 * torch.eye(N)
-    # four blocks: (1/sqrt(2)) (1, 1; -1, 1)
+    ans = OrthogonalLinear(num_channels, penalty_scale=penalty_scale)
+    # want to initialize weight as:
+    #  1/sqrt(2) * M, where M is a block-diagonal matrix with 2x2 blocks [ 1 1; 1 -1 ]
     with torch.no_grad():
-        ans.weight[:N, :N] = eye
-        ans.weight[:N, N:] = eye
-        ans.weight[N:, :N] = -eye
-        ans.weight[N:, N:] = eye
-    return ans
+        inv_sqrt2 = 2 ** -0.5
+        ans.weight[:] = 0.0
+        ans.weight[0::2, 0::2] = inv_sqrt2
+        ans.weight[0::2, 1::2] = inv_sqrt2
+        ans.weight[1::2, 0::2] = inv_sqrt2
+        ans.weight[1::2, 1::2] = -inv_sqrt2
 
-def OrthogonalLinearUpsampling(num_channels: int):
-    # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
-    # that is suitable to use when downsampling; we multiply by this matrix then reshape.
-    assert num_channels % 2 == 0
-    ans = OrthogonalLinear(num_channels)
-    inv_sqrt2 = 2 ** -0.5
-    N = num_channels // 2
-    eye = inv_sqrt2 * torch.eye(N)
-    # four blocks: (1/sqrt(2)) (1, -1; 1, 1)
-    with torch.no_grad():
-        ans.weight[:N, :N] = eye
-        ans.weight[:N, N:] = -eye
-        ans.weight[N:, :N] = eye
-        ans.weight[N:, N:] = eye
     return ans
 
 
