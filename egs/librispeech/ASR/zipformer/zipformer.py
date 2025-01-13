@@ -27,8 +27,7 @@ import torch
 from encoder_interface import EncoderInterface
 from scaling import (
     Identity,  # more friendly to backward hooks than nn.Identity(), for diagnostic reasons.
-    OrthogonalLinearUpsampling,
-    OrthogonalLinearDownsampling,
+    OrthogonalLinearSpecial,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ActivationDropoutAndLinear,
     Balancer,
@@ -154,13 +153,18 @@ class Zipformer2(EncoderInterface):
         # caution: some changes we made for this break the streaming, later we'll try to fix this.
         encoders_downsampling_factors = [ ]
 
+        # make it so large the limit is never reached.
+        max_proj_dim = max(downsampling_factor) * max(encoder_dim)
+
         def set_downsample_factor(cur_downsample, ds):
             while cur_downsample < ds:
                 # need to downsample
-                encoders.append(InvertibleDownsample(input_dim * cur_downsample))
+                encoders.append(InvertibleDownsample(channels=input_dim * cur_downsample,
+                                                     proj_dim=min(2 * input_dim * cur_downsample, max_proj_dim)))
                 cur_downsample *= 2
             while cur_downsample > ds:
-                encoders.append(InvertibleUpsample(input_dim * cur_downsample))
+                encoders.append(InvertibleUpsample(channels=input_dim * cur_downsample,
+                                                   proj_dim=min(input_dim * cur_downsample, max_proj_dim)))
                 cur_downsample //= 2
             return cur_downsample
 
@@ -580,7 +584,7 @@ class Zipformer2EncoderLayer(nn.Module):
         chunk_size: int = -1,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
-        randomize: bool = False,  # do the invertibility-encouraging randomization if True.
+        randomize: bool = False,
     ) -> Tensor:
         """
             Pass the input through the encoder layer.
@@ -600,7 +604,7 @@ class Zipformer2EncoderLayer(nn.Module):
         """
         ans = self.forward_internal(src, pos_emb, chunk_size,
                                     attn_mask, src_key_padding_mask)
-        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (randomize and self.training):
+        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (self.training and randomize):
             return self.norm(ans)
 
         # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
@@ -870,7 +874,13 @@ class Zipformer2Encoder(nn.Module):
         if num_channels > layer_dim:
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
-        randomize_layer = random.randint(0, len(self.layers) - 1)
+
+        randomize_proportion = 0.25
+        L = len(self.layers)
+        # int(...) rounds down.  we'll only randomize >= 2 layers if L >= 8.
+        num_randomize = max(1, int(0.5 + L * randomize_proportion))
+        randomize_layer = [ True ] * num_randomize + [ False ] * (L - num_randomize)
+        random.shuffle(randomize_layer)
         for i, mod in enumerate(self.layers):
             src = mod(
                 src,
@@ -878,8 +888,10 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
-                randomize=(i == randomize_layer),
+                randomize=randomize_layer[i],
             )
+            # randomize_factor can be viewed as a simple version of an
+            # importance-sampling factor.
 
         if num_channels > layer_dim:
             src = torch.cat((src, bypass), dim=-1)
@@ -1020,14 +1032,26 @@ class BypassModule(nn.Module):
 
 class InvertibleDownsample(torch.nn.Module):
     """
-    Does downsampling in an invertible way, by a factor of two.
+    Does downsampling in an invertible way, by a factor of two.  Projection is initialized
+    in a special way and enforced to be orthogonal.
+
+    Args:
+       channels: the number of input channels; the num output channels will be twice this
+       proj_dim: the number of channels, after combining 2 frames by interpolating their channels
+                  as [ a b a b, .. ] that will actually be projected; the rest are just copied.
+                  proj_dim=2 * channels would mean all channels are projected in a learned way
+         causal: True for causal systems, only affects error messages as requires even
+                 input num frames.
+   penalty_scale: Penalty scale to enforce orthogonal projection; this is specifiable because
+                it may interact with the scale of the loss function, i.e. if the loss-function
+                scale is smaller you may want this to be smaller.
     """
     def __init__(
-            self, channels: int, causal: bool = False,
+            self, channels: int, proj_dim: int, causal: bool = False, penalty_scale: float = 1000.0,
     ):
         super().__init__()
-
-        self.proj = OrthogonalLinearDownsampling(channels * 2)
+        assert proj_dim <= channels * 2
+        self.proj = OrthogonalLinearSpecial(proj_dim, penalty_scale=penalty_scale)
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -1046,18 +1070,34 @@ class InvertibleDownsample(torch.nn.Module):
             src = torch.cat((src, src[-1:]), dim=0)
             seq_len += 1
 
-        src = src.permute(1, 0, 2).reshape(batch_size, seq_len // 2, in_channels * 2)
-        src = self.proj(src)
-        src = src.permute(1, 0, 2)  # (seq_len // 2, batch_size, in_channels * 2)
+        # the following will place each 2 frames of a particular channel right after
+        # each other as if they were two different channels.
+        src = torch.stack((src[0::2], src[1::2]), dim=-1)
+        src = src.reshape(seq_len // 2, batch_size, in_channels * 2)
+        proj_channels = self.proj.weight.shape[0]
+        if proj_channels < in_channels * 2:
+            src = torch.cat((self.proj(src[..., :proj_channels]), src[..., proj_channels:]),
+                            dim=-1)
+        else:
+            src = self.proj(src)
         return src
 
 class InvertibleUpsample(torch.nn.Module):
     """
     A very simple form of upsampling that is the inverse of InvertibleDownsampling.
+    Projection is initialized in a special way and enforced to be orthogonal.
+
+       proj_dim: the number of channels that will actually be projected; the rest are just copied.
+                  proj_dim=channels would mean all channels are projected in a learned way
+   penalty_scale: Penalty scale to enforce orthogonal projection; this is specifiable because
+                it may interact with the scale of the loss function, i.e. if the loss-function
+                scale is smaller you may want this to be smaller.
+
     """
-    def __init__(self, channels: int):
+    def __init__(self, channels: int, proj_dim: int, penalty_scale: float = 1000.0):
         super().__init__()
-        self.proj = OrthogonalLinearUpsampling(channels)
+        assert proj_dim <= channels
+        self.proj = OrthogonalLinearSpecial(proj_dim, penalty_scale=penalty_scale)
 
     def forward(self, src: Tensor) -> Tensor:
         """
@@ -1065,10 +1105,18 @@ class InvertibleUpsample(torch.nn.Module):
         Returns a tensor of shape
            ( (seq_len*2), batch_size, num_channels // 2)
         """
-        src = self.proj(src)
+        proj_channels = self.proj.weight.shape[0]
         (seq_len, batch_size, in_channels) = src.shape
-        src = src.permute(1, 0, 2).reshape(batch_size, seq_len * 2, in_channels // 2)
-        src = src.permute(1, 0, 2)  # (seq_len * 2, batch_size, in_channels // 2)
+
+        if proj_channels < in_channels:
+            src = torch.cat((self.proj(src[..., :proj_channels]), src[..., proj_channels:]),
+                            dim=-1)
+        else:
+            src = self.proj(src)
+
+        src = torch.stack((src[..., 0::2], src[..., 1::2]),
+                          dim=1)  # (seq_len, 2, batch_size, in_channels // 2)
+        src = src.reshape(seq_len * 2, batch_size, in_channels // 2)
         return src
 
 
