@@ -153,8 +153,8 @@ class Zipformer2(EncoderInterface):
         # caution: some changes we made for this break the streaming, later we'll try to fix this.
         encoders_downsampling_factors = [ ]
 
-        # the following is basically heuristic; max(encoder_dim) would be OK also.
-        max_proj_dim = 2 * max(encoder_dim)
+        # make it so large the limit is never reached.
+        max_proj_dim = max(downsampling_factor) * max(encoder_dim)
 
         def set_downsample_factor(cur_downsample, ds):
             while cur_downsample < ds:
@@ -489,7 +489,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 0.5), (10000.0, 0.1)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 1.0), (20000.0, 0.5)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -584,9 +584,7 @@ class Zipformer2EncoderLayer(nn.Module):
         chunk_size: int = -1,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
-        randomize_factor: float = 0.0, # will be 1/(probability with which we
-                                       # randomized this layer) if randomizing,
-                                       # else 0.
+        randomize: bool = False,
     ) -> Tensor:
         """
             Pass the input through the encoder layer.
@@ -606,7 +604,7 @@ class Zipformer2EncoderLayer(nn.Module):
         """
         ans = self.forward_internal(src, pos_emb, chunk_size,
                                     attn_mask, src_key_padding_mask)
-        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (self.training and randomize_factor != 0.0):
+        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (self.training and randomize):
             return self.norm(ans)
 
         # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
@@ -624,7 +622,7 @@ class Zipformer2EncoderLayer(nn.Module):
 
         diff_sqscale = (diff ** 2).mean(dim=2, keepdim=True)
         G = 0.1      # scale on the global-mean part of the random-noise scale.
-        scale = randomize_factor * float(self.randomize_scale)
+        scale = float(self.randomize_scale)
         with torch.cuda.amp.autocast(enabled=False):
             diff_scale = ((scale * G) * diff_sqscale.to(torch.float).mean() + (scale * (1. - G)) * diff_sqscale).sqrt()
         rand = torch.randn_like(src) * diff_scale
@@ -890,7 +888,7 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
-                randomize_factor=(L / num_randomize) if randomize_layer[i] else 0,
+                randomize=randomize_layer[i],
             )
             # randomize_factor can be viewed as a simple version of an
             # importance-sampling factor.
