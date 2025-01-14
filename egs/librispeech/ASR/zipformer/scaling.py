@@ -385,7 +385,7 @@ class BiasNormFunction(torch.autograd.Function):
 
         noise_shape = list(x.shape)
         noise_shape[channel_dim] = 1
-        eps_noise = torch.randn_like(x) * log_eps_noise
+        eps_noise = torch.randn(*noise_shape, device=x.device, dtype=x.dtype) * log_eps_noise
 
         scales = (
             torch.mean(x ** 2 + log_eps.exp() + eps_noise,
