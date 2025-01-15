@@ -383,12 +383,15 @@ class BiasNormFunction(torch.autograd.Function):
             channel_dim = channel_dim + x.ndim
         ctx.channel_dim = channel_dim
 
-        noise_shape = list(x.shape)
-        noise_shape[channel_dim] = 1
-        eps_noise = torch.randn(*noise_shape, device=x.device, dtype=x.dtype) * log_eps_noise
+        if log_eps_noise != 0.0:
+            noise_shape = list(x.shape)
+            noise_shape[channel_dim] = 1
+            eps_noise = torch.randn(*noise_shape, device=x.device, dtype=x.dtype) * log_eps_noise
+        else:
+            eps_noise = torch.zeros_like(log_eps)
 
         scales = (
-            torch.mean(x ** 2 + log_eps.exp() + eps_noise,
+            torch.mean(x ** 2 + (log_eps + eps_noise).exp(),
                        dim=channel_dim, keepdim=True) ** -0.5
         ) * (0.5 * eps_noise + log_scale).exp()
         ans = x * scales
@@ -412,7 +415,7 @@ class BiasNormFunction(torch.autograd.Function):
             with torch.enable_grad():
                 # recompute scales from x, log_eps and log_scale.
                 scales = (
-                    torch.mean(x ** 2 + log_eps.exp() + eps_noise,
+                    torch.mean(x ** 2 + (log_eps + eps_noise).exp(),
                                dim=ctx.channel_dim, keepdim=True) ** -0.5
                 ) * (0.5 * eps_noise + log_scale).exp()
                 ans = x * scales
@@ -461,8 +464,6 @@ class BiasNorm(torch.nn.Module):
         self.num_channels = num_channels
         self.channel_dim = channel_dim
         self.log_scale = nn.Parameter(torch.tensor(log_scale))
-        self.in_bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
-        self.out_bias = nn.Parameter(torch.empty(num_channels).normal_(mean=0, std=1e-4))
         self.log_eps = nn.Parameter(torch.tensor(0.0))
 
         # scale on noise we add to log_eps as part of a mechanism to encourage it to stay relatively large
@@ -476,8 +477,6 @@ class BiasNorm(torch.nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         assert x.shape[self.channel_dim] == self.num_channels
 
-        x = x + self.in_bias
-
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             channel_dim = self.channel_dim
             if channel_dim < 0:
@@ -486,7 +485,7 @@ class BiasNorm(torch.nn.Module):
                 torch.mean(x ** 2 + self.log_eps.exp(),
                            dim=channel_dim, keepdim=True) ** -0.5
             ) * self.log_scale.exp()
-            return (x * scales) + self.out_bias
+            return (x * scales)
 
         log_scale = limit_param_value(
             self.log_scale,
@@ -502,14 +501,11 @@ class BiasNorm(torch.nn.Module):
 
         if random.random() < 0.002:
             x_rms = (x ** 2).mean().sqrt()
-            in_bias_rms = (self.in_bias ** 2).mean().sqrt()
-            out_bias_rms = (self.out_bias ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: x_rms={x_rms}, in_bias_rms={in_bias_rms}, out_bias_rms={out_bias_rms}, log_scale={self.log_scale.item()}, log_eps={self.log_eps.item()}")
+            logging.info(f"name={self.name}: x_rms={x_rms}, log_scale={self.log_scale.item()}, log_eps={self.log_eps.item()}, (0.5*log_eps).exp()/x_rms={(0.5*self.log_eps).exp()/x_rms}")
 
         return BiasNormFunction.apply(
             x, self.log_eps, log_scale, self.channel_dim, float(self.log_eps_noise),
-        ) + self.out_bias
-
+        )
 
 
 
