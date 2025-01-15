@@ -468,7 +468,7 @@ class BiasNorm(torch.nn.Module):
 
         # scale on noise we add to log_eps as part of a mechanism to encourage it to stay relatively large
         # compared to x.
-        self.log_eps_noise = ScheduledFloat((0.0, 0.05), (20000.0, 0.02), default=0.0)
+        self.log_eps_noise = ScheduledFloat((0.0, 0.05), (20000.0, 0.0), default=0.0)
         self.name = None
 
         self.log_scale_min = log_scale_min
