@@ -1097,7 +1097,9 @@ class InvertibleUpsample(torch.nn.Module):
     def __init__(self, channels: int, proj_dim: int, penalty_scale: float = 1000.0):
         super().__init__()
         assert proj_dim <= channels
-        self.proj = OrthogonalLinearSpecial(proj_dim, penalty_scale=penalty_scale)
+        self.proj = OrthogonalLinearSpecial(proj_dim,
+                                            penalty_scale=penalty_scale,
+                                            transpose=True)
 
     def forward(self, src: Tensor) -> Tensor:
         """
