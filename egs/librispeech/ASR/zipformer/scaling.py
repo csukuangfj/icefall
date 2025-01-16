@@ -620,7 +620,9 @@ class OrthogonalLinear(nn.Linear):
             logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} * {penalty_scale} = {err*penalty_scale}, ans-rms={ans_rms}")
         return ans
 
-def OrthogonalLinearSpecial(num_channels: int, penalty_scale: float = 1000.0):
+def OrthogonalLinearSpecial(num_channels: int,
+                            penalty_scale: float = 1000.0,
+                            transpose: bool = False):
     # returns a parameterized nn.Linear that stays orthogonal, with a special initialization
     # that is suitable to use when downsampling; we reshape then multiply by this matrix.
     assert num_channels % 2 == 0
@@ -632,8 +634,8 @@ def OrthogonalLinearSpecial(num_channels: int, penalty_scale: float = 1000.0):
         ans.weight[:] = 0.0
         ans.weight[0::2, 0::2] = inv_sqrt2
         ans.weight[0::2, 1::2] = inv_sqrt2
-        ans.weight[1::2, 0::2] = inv_sqrt2
-        ans.weight[1::2, 1::2] = -inv_sqrt2
+        ans.weight[1::2, 0::2] = -inv_sqrt2 if transpose else inv_sqrt2
+        ans.weight[1::2, 1::2] = inv_sqrt2 if transpose else -inv_sqrt2
         N = ans.weight.shape[0]
         ans.weight *= (torch.arange(N)[:, None] // 2 ==
                        torch.arange(N)[None, :] // 2)
