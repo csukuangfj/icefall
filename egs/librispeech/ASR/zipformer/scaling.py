@@ -453,7 +453,7 @@ class BiasNorm(torch.nn.Module):
         self.channel_dim = channel_dim
         self.scale = nn.Parameter(torch.tensor(2.0))
         self.eps = nn.Parameter(torch.tensor(1.0))
-        self.max_scale = nn.Parameter(torch.tensor(2.0))
+        self.max_scale = nn.Parameter(torch.tensor(1.2))
 
         self.name = None
 
@@ -474,7 +474,7 @@ class BiasNorm(torch.nn.Module):
             self.eps, min=0.5, max=4.0, training=self.training)
 
         max_scale = limit_param_value(
-            self.max_scale, min=1.5, max=4.0, training=self.training)
+            self.max_scale, min=1.05, max=3.0, training=self.training)
 
         scale = limit_param_value(
             self.scale, min=0.5, max=4.0, training=self.training)
