@@ -500,8 +500,6 @@ class Zipformer2EncoderLayer(nn.Module):
         self.bypass = BypassModule(
             embed_dim,
         )
-        # bypass_mid is bypass used in the middle of the layer.
-        self.bypass_mid = BypassModule(embed_dim, straight_through_rate=0)
 
         self.self_attn_weights = RelPositionMultiheadAttentionWeights(
             embed_dim,
@@ -514,45 +512,21 @@ class Zipformer2EncoderLayer(nn.Module):
 
         self.self_attn1 = SelfAttention(embed_dim, num_heads, value_head_dim)
 
-        self.self_attn2 = SelfAttention(embed_dim, num_heads, value_head_dim)
-
         self.feed_forward1 = FeedforwardModule(
             embed_dim, (feedforward_dim * 3) // 4, dropout
         )
 
         self.feed_forward2 = FeedforwardModule(embed_dim, feedforward_dim, dropout)
 
-        self.feed_forward3 = FeedforwardModule(
-            embed_dim, (feedforward_dim * 5) // 4, dropout
-        )
 
-        self.nonlin_attention = NonlinAttention(
-            embed_dim, hidden_channels=3 * embed_dim // 4
-        )
-
-        self.conv_module1 = ConvolutionModule(
+        self.conv_module = ConvolutionModule(
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        self.conv_module2 = ConvolutionModule(
-            embed_dim, cnn_module_kernel, causal=causal
-        )
-
-        # TODO: remove it
-        self.bypass_scale = nn.Parameter(torch.full((embed_dim,), 0.5))
 
         self.norm = BiasNorm(embed_dim)
 
 
-        # balancer for output of NonlinAttentionModule
-        self.balancer_na = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.3,
-            max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.004), (4000.0, 0.02)),
-            prob=0.05,  # out of concern for memory usage
-        )
 
         # balancer for output of feedforward2, prevent it from staying too
         # small.  give this a very small probability, even at the start of
@@ -564,16 +538,6 @@ class Zipformer2EncoderLayer(nn.Module):
             max_positive=0.7,
             min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.1), default=0.0),
             max_abs=2.0,
-            prob=0.05,
-        )
-
-        self.balancer_ff3 = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.3,
-            max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.2), default=0.0),
-            max_abs=4.0,
             prob=0.05,
         )
 
@@ -671,25 +635,13 @@ class Zipformer2EncoderLayer(nn.Module):
 
         src = src + self.feed_forward1(src)
 
-        src = src + self.balancer_na(self.nonlin_attention(src, attn_weights[0:1]))
-
         src = src + self.self_attn1(src, attn_weights)
 
-        src = src + self.conv_module1(
+        src = src + self.conv_module(
             src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
         )
 
         src = src + self.balancer_ff2(self.feed_forward2(src))
-
-        # bypass in the middle of the layer.
-        src = self.bypass_mid(src_orig, src)
-
-        src = src + self.self_attn2(src, attn_weights)
-
-        src = src + self.conv_module2(
-            src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
-        )
-        src = src + self.balancer_ff3(self.feed_forward3(src))
 
         src = self.bypass(src_orig, src)
 
@@ -752,6 +704,7 @@ class Zipformer2EncoderLayer(nn.Module):
         )
 
         src = src + self.feed_forward1(src)
+
 
         na, cached_nonlin_attn = self.nonlin_attention.streaming_forward(
             src,
