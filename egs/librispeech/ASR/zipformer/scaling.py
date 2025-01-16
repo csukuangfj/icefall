@@ -392,13 +392,12 @@ class BiasNormFunction(torch.autograd.Function):
             eps.detach(),
             max_scale.detach(),
             scale.detach(),
-            scales.detach(),
         )
         return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, eps, max_scale, scale, scales = ctx.saved_tensors
+        x, eps, max_scale, scale = ctx.saved_tensors
         with torch.cuda.amp.autocast(enabled=False):
             x.requires_grad = True
             eps.requires_grad = True
@@ -452,7 +451,7 @@ class BiasNorm(torch.nn.Module):
         super(BiasNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
-        self.scale = nn.Parameter(torch.tensor(1.0))
+        self.scale = nn.Parameter(torch.tensor(2.0))
         self.eps = nn.Parameter(torch.tensor(1.0))
         self.max_scale = nn.Parameter(torch.tensor(2.0))
 
