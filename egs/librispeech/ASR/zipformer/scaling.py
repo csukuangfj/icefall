@@ -409,7 +409,12 @@ class BiasNormFunction(torch.autograd.Function):
                 ans = x * scales
                 ans.backward(gradient=ans_grad)
 
-        return x.grad, eps.grad, power.grad, scale.grad, None
+        def c(x):
+            # this is to replace infinities that might be thrown up
+            # in autocast mode.
+            return x.clamp_(min=-30000.0, max=30000.0)
+
+        return x.grad, c(eps.grad), c(power.grad), c(scale.grad), None
 
 
 class BiasNorm(torch.nn.Module):
