@@ -375,7 +375,7 @@ class BiasNormFunction(torch.autograd.Function):
         ctx,
         x: Tensor,
         eps: Tensor,
-        max_scale: Tensor,
+        power: Tensor,
         scale: Tensor,
         channel_dim: int,
     ) -> Tensor:
@@ -384,35 +384,32 @@ class BiasNormFunction(torch.autograd.Function):
         ctx.channel_dim = channel_dim
 
         x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-        scales = scale * torch.maximum(x_sq * max_scale,
-                                       x_sq + eps) ** -0.5
+        scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
         ans = x * scales
         ctx.save_for_backward(
             x.detach(),
             eps.detach(),
-            max_scale.detach(),
+            power.detach(),
             scale.detach(),
         )
         return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, eps, max_scale, scale = ctx.saved_tensors
+        x, eps, power, scale = ctx.saved_tensors
         with torch.cuda.amp.autocast(enabled=False):
             x.requires_grad = True
             eps.requires_grad = True
-            max_scale.requires_grad = True
+            power.requires_grad = True
             scale.requires_grad = True
 
             with torch.enable_grad():
-
                 x_sq = torch.mean(x ** 2, dim=ctx.channel_dim, keepdim=True)
-                scales = scale * torch.maximum(x_sq * max_scale,
-                                               x_sq + eps) ** -0.5
+                scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
                 ans = x * scales
                 ans.backward(gradient=ans_grad)
 
-        return x.grad, eps.grad, max_scale.grad, scale.grad, None
+        return x.grad, eps.grad, power.grad, scale.grad, None
 
 
 class BiasNorm(torch.nn.Module):
@@ -453,7 +450,7 @@ class BiasNorm(torch.nn.Module):
         self.channel_dim = channel_dim
         self.scale = nn.Parameter(torch.tensor(2.0))
         self.eps = nn.Parameter(torch.tensor(1.0))
-        self.max_scale = nn.Parameter(torch.tensor(1.2))
+        self.power = nn.Parameter(torch.tensor(1.0))
 
         self.name = None
 
@@ -466,25 +463,24 @@ class BiasNorm(torch.nn.Module):
             if channel_dim < 0:
                 channel_dim += x.ndim
             x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-            scales = self.scale * torch.maximum(x_sq * self.max_scale,
-                                                x_sq + self.eps) ** -0.5
+            scales = self.scale * (x_sq ** self.power + self.eps) ** (-0.5 / self.power)
             return (x * scales)
 
         eps = limit_param_value(
             self.eps, min=0.5, max=4.0, training=self.training)
 
-        max_scale = limit_param_value(
-            self.max_scale, min=1.05, max=3.0, training=self.training)
+        power = limit_param_value(
+            self.power, min=0.9, max=3.0, training=self.training)
 
         scale = limit_param_value(
             self.scale, min=0.5, max=4.0, training=self.training)
 
         if random.random() < 0.002:
             x_rms = (x ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: x_rms={x_rms}, eps={eps.item()}, max_scale={max_scale.item()}, scale={scale.item()}, sqrt(eps)/x_rms={eps.sqrt()/x_rms}")
+            logging.info(f"name={self.name}: x_rms={x_rms}, power={power.item()}, eps**(1/power)={(eps ** (1/power))}, scale={scale.item()}, (eps**(0.5/power))/x_rms={(eps**(0.5/power))/x_rms}")
 
         return BiasNormFunction.apply(
-            x, eps, max_scale, scale, self.channel_dim,
+            x, eps, power, scale, self.channel_dim,
         )
 
 
