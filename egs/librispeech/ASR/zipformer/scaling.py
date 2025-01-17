@@ -473,7 +473,7 @@ class BiasNorm(torch.nn.Module):
             self.power, min=0.5, max=3.0, training=self.training)
 
         scale = limit_param_value(
-            self.scale, min=0.5, max=4.0, training=self.training)
+            self.scale, min=0.25, max=2.0, training=self.training)
 
         if random.random() < 0.002:
             x_rms = (x ** 2).mean().sqrt()
