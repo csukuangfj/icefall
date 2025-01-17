@@ -551,7 +551,7 @@ class Zipformer2EncoderLayer(nn.Module):
             min_positive=0.3,
             max_positive=0.7,
             min_abs=ScheduledFloat((0.0, 0.004), (4000.0, 0.02)),
-            prob=0.05,  # out of concern for memory usage
+            prob=0.1,
         )
 
         # balancer for output of feedforward2, prevent it from staying too
@@ -562,9 +562,9 @@ class Zipformer2EncoderLayer(nn.Module):
             channel_dim=-1,
             min_positive=0.3,
             max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.1), default=0.0),
+            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.05), default=0.0),
             max_abs=2.0,
-            prob=0.05,
+            prob=0.1,
         )
 
         self.balancer_ff3 = Balancer(
@@ -572,9 +572,9 @@ class Zipformer2EncoderLayer(nn.Module):
             channel_dim=-1,
             min_positive=0.3,
             max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.2), default=0.0),
+            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.1), default=0.0),
             max_abs=4.0,
-            prob=0.05,
+            prob=0.1,
         )
 
     def forward(

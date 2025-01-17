@@ -808,6 +808,51 @@ class ChunkCausalDepthwiseConv1d(torch.nn.Module):
         return x_chunk + x_causal, cache
 
 
+def balancer_backward_func(x, x_grad, min_mean, max_mean, min_rms, max_rms, grad_scale, channel_dim):
+    # this was taken out of the Balancer backward function.
+    # returns modified version of x_grad.
+    with torch.enable_grad():
+        with torch.cuda.amp.autocast(enabled=False):
+            x = x.to(torch.float32)
+            x = x.detach()
+            x.requires_grad = True
+            mean_dims = [i for i in range(x.ndim) if i != channel_dim]
+            uncentered_var = (x**2).mean(dim=mean_dims, keepdim=True)
+            mean = x.mean(dim=mean_dims, keepdim=True)
+            stddev = (uncentered_var - (mean * mean)).clamp(min=1.0e-20).sqrt()
+            rms = uncentered_var.clamp(min=1.0e-20).sqrt()
+
+            m = mean / stddev
+            # part of loss that relates to mean / stddev
+            m_loss = (m - m.clamp(min=min_mean, max=max_mean)).abs()
+
+            # put a much larger scale on the RMS-max-limit loss, so that if both it and the
+            # m_loss are violated we fix the RMS loss first.
+            rms_clamped = rms.clamp(min=min_rms, max=max_rms)
+            r_loss = (rms_clamped / rms).log().abs()
+
+            loss = m_loss + r_loss
+
+            loss.backward(gradient=torch.ones_like(loss))
+            loss_grad = x.grad
+            loss_grad_rms = (
+                (loss_grad**2)
+                .mean(dim=mean_dims, keepdim=True)
+                .sqrt()
+                .clamp(min=1.0e-20)
+            )
+
+            loss_grad = loss_grad * (grad_scale / loss_grad_rms)
+
+            x_grad_float = x_grad.to(torch.float32)
+            # scale each element of loss_grad by the absolute value of the corresponding
+            # element of x_grad, which we view as a noisy estimate of its magnitude for that
+            # (frame and dimension).  later we can consider factored versions.
+            x_grad_mod = x_grad_float + (x_grad_float.abs() * loss_grad)
+            x_grad = x_grad_mod.to(x_grad.dtype)
+    return x_grad
+
+
 class BalancerFunction(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -833,50 +878,30 @@ class BalancerFunction(torch.autograd.Function):
         (min_mean, max_mean, min_rms, max_rms, grad_scale, channel_dim) = ctx.config
 
         try:
-            with torch.enable_grad():
-                with torch.cuda.amp.autocast(enabled=False):
-                    x = x.to(torch.float32)
-                    x = x.detach()
-                    x.requires_grad = True
-                    mean_dims = [i for i in range(x.ndim) if i != channel_dim]
-                    uncentered_var = (x**2).mean(dim=mean_dims, keepdim=True)
-                    mean = x.mean(dim=mean_dims, keepdim=True)
-                    stddev = (uncentered_var - (mean * mean)).clamp(min=1.0e-20).sqrt()
-                    rms = uncentered_var.clamp(min=1.0e-20).sqrt()
-
-                    m = mean / stddev
-                    # part of loss that relates to mean / stddev
-                    m_loss = (m - m.clamp(min=min_mean, max=max_mean)).abs()
-
-                    # put a much larger scale on the RMS-max-limit loss, so that if both it and the
-                    # m_loss are violated we fix the RMS loss first.
-                    rms_clamped = rms.clamp(min=min_rms, max=max_rms)
-                    r_loss = (rms_clamped / rms).log().abs()
-
-                    loss = m_loss + r_loss
-
-                    loss.backward(gradient=torch.ones_like(loss))
-                    loss_grad = x.grad
-                    loss_grad_rms = (
-                        (loss_grad**2)
-                        .mean(dim=mean_dims, keepdim=True)
-                        .sqrt()
-                        .clamp(min=1.0e-20)
-                    )
-
-                    loss_grad = loss_grad * (grad_scale / loss_grad_rms)
-
-                    x_grad_float = x_grad.to(torch.float32)
-                    # scale each element of loss_grad by the absolute value of the corresponding
-                    # element of x_grad, which we view as a noisy estimate of its magnitude for that
-                    # (frame and dimension).  later we can consider factored versions.
-                    x_grad_mod = x_grad_float + (x_grad_float.abs() * loss_grad)
-                    x_grad = x_grad_mod.to(x_grad.dtype)
+            x_grad = balancer_backward_func(x, x_grad, min_mean, max_mean, min_rms,
+                                            max_rms, grad_scale, channel_dim)
         except Exception as e:
             logging.info(
-                f"Caught exception in Balancer backward: {e}, size={list(x_grad.shape)}, will continue."
+                f"Caught exception in Balancer backward: {e}, size={list(x_grad.shape)}, will balance a part of it."
             )
+            try:
+                # will take a piece of x_grad in this dimension.
+                dim_to_split = 0 if channel_dim != 0 else 1
+                size = x.shape[dim_to_split]
 
+                x_grad_part = balancer_backward_func(x.narrow(dim_to_split, 0, size // 4),
+                                                     x_grad.narrow(dim_to_split, 0, size // 4),
+                                                     min_mean, max_mean, min_rms,
+                                                     max_rms, grad_scale, channel_dim)
+                del x # save memory
+                x_grad = torch.cat([x_grad_part, x_grad.narrow(dim_to_split,
+                                                               size // 4,
+                                                               size - size // 4)],
+                                   dim_to_split)
+            except Exception as e:
+                logging.info(
+                    f"Caught exception second time in Balancer backward: {e}, size={list(x_grad.shape)}, will continue."
+                )
         return x_grad, None, None, None, None, None, None
 
 
@@ -1970,7 +1995,7 @@ def _test_activation_dropout_and_linear():
                 assert isclose(x1.grad, x2.grad)
 
 def _test_orthogonal_linear():
-    for t in (OrthogonalLinear, OrthogonalLinearUpsampling, OrthogonalLinearDownsampling):
+    for t in (OrthogonalLinear, OrthogonalLinearSpecial):
         m = t(128)
         m(torch.randn(30, 2, 128))
 
