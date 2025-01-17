@@ -398,8 +398,8 @@ class BiasNormFunction(torch.autograd.Function):
     def backward(ctx, ans_grad: Tensor) -> Tensor:
         x, eps, power, scale = ctx.saved_tensors
         with torch.cuda.amp.autocast(enabled=False):
-            power, eps, scale = power.to(torch.float32), eps.to(torch.float32), scale.to(torch.float32)
-            power, eps, scale = power.detach(), eps.detach(), scale.detach()
+            x, power, eps, scale = x.to(torch.float32), power.to(torch.float32), eps.to(torch.float32), scale.to(torch.float32)
+            x, power, eps, scale = x.detach(), power.detach(), eps.detach(), scale.detach()
             x.requires_grad = True
             eps.requires_grad = True
             power.requires_grad = True
@@ -409,7 +409,7 @@ class BiasNormFunction(torch.autograd.Function):
                 x_sq = torch.mean(x ** 2, dim=ctx.channel_dim, keepdim=True)
                 scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
                 ans = x * scales
-                ans.backward(gradient=ans_grad)
+                ans.backward(gradient=ans_grad.to(torch.float32))
 
         def c(x):
             # this is to replace infinities that might be thrown up
