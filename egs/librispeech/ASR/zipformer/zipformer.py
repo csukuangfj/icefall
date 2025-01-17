@@ -527,7 +527,6 @@ class Zipformer2EncoderLayer(nn.Module):
         self.norm = BiasNorm(embed_dim)
 
 
-
         # balancer for output of feedforward2, prevent it from staying too
         # small.  give this a very small probability, even at the start of
         # training, it's to fix a rare problem and it's OK to fix it slowly.
@@ -536,9 +535,9 @@ class Zipformer2EncoderLayer(nn.Module):
             channel_dim=-1,
             min_positive=0.3,
             max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.1), default=0.0),
+            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.05), default=0.0),
             max_abs=2.0,
-            prob=0.05,
+            prob=0.1,
         )
 
     def forward(

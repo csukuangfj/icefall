@@ -42,7 +42,7 @@ def register_inf_check_hooks(model: nn.Module) -> None:
                 try:
                     if not torch.isfinite(_output.to(torch.float32).sum()):
                         logging.warning(
-                            f"The sum of {_name}.output is not finite: {_output}"
+                            f"The sum of {_name}.output is not finite"
                         )
                 except RuntimeError:  # e.g. CUDA out of memory
                     pass
@@ -55,7 +55,7 @@ def register_inf_check_hooks(model: nn.Module) -> None:
                     try:
                         if not torch.isfinite(o.to(torch.float32).sum()):
                             logging.warning(
-                                f"The sum of {_name}.output[{i}] is not finite: {_output}"
+                                f"The sum of {_name}.output[{i}] is not finite"
                             )
                     except RuntimeError:  # e.g. CUDA out of memory
                         pass
