@@ -973,6 +973,7 @@ class BypassModule(nn.Module):
                 ans = torch.maximum(ans, mask.to(ans.dtype))
             return ans
 
+
     def forward(self, src_orig: Tensor, src: Tensor):
         """
         Args: src_orig and src are both of shape (seq_len, batch_size, num_channels)
