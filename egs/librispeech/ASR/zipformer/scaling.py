@@ -397,6 +397,8 @@ class BiasNormFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
         x, eps, power, scale = ctx.saved_tensors
+        power, eps, scale = power.to(torch.float32), eps.to(torch.float32), scale.to(torch.float32)
+        power, eps, scale = power.detach(), eps.detach(), scale.detach()
         with torch.cuda.amp.autocast(enabled=False):
             x.requires_grad = True
             eps.requires_grad = True
