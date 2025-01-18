@@ -581,7 +581,7 @@ class Zipformer2EncoderLayer(nn.Module):
             # linear "flow".
             # 0.005 ( 1 + ans_scale_sq) is supposed to encourage the rms of embedding vectors to be
             # about 1.
-            noise_scale = float(self.randomize_scale) * diff_scale + 0.005 * (1 + ans_scale_sq)
+            noise_scale = scale * diff_scale + 0.005 * (1 + ans_scale_sq)
 
         rand = torch.randn_like(src) * noise_scale
         if random.random() < 0.01 or __name__ == '__main__':
