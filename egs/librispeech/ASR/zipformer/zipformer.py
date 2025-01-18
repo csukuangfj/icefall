@@ -587,7 +587,7 @@ class Zipformer2EncoderLayer(nn.Module):
         if random.random() < 0.01 or __name__ == '__main__':
             # logging output
             vt_scale = ((ans - src) ** 2).mean(dim=2, keepdim=True).sqrt().mean()
-            logging.info(f"name={self.name}: ans_scale={ans_scale.mean()}, vt_scale={vt_scale}, diff-scale={diff_scale.mean()}")
+            logging.info(f"name={self.name}: ans_scale={ans_scale.mean()}, vt_scale={vt_scale}, diff-scale={diff_scale.mean()}, noise-scale={noise_scale.mean()}")
 
         return self.norm(ans + rand)
 
