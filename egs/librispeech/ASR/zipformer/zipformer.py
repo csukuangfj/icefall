@@ -489,7 +489,7 @@ class Zipformer2EncoderLayer(nn.Module):
         dropout: FloatLike = 0.1,
         cnn_module_kernel: int = 31,
         causal: bool = False,
-        randomize_scale: FloatLike = ScheduledFloat((0.0, 1.0), (20000.0, 0.5)),
+        randomize_scale: FloatLike = ScheduledFloat((0.0, 1.0), (20000.0, 0.75)),
     ) -> None:
         super(Zipformer2EncoderLayer, self).__init__()
         self.embed_dim = embed_dim
@@ -527,18 +527,6 @@ class Zipformer2EncoderLayer(nn.Module):
         self.norm = BiasNorm(embed_dim)
 
 
-        # balancer for output of feedforward2, prevent it from staying too
-        # small.  give this a very small probability, even at the start of
-        # training, it's to fix a rare problem and it's OK to fix it slowly.
-        self.balancer_ff2 = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.3,
-            max_positive=0.7,
-            min_abs=ScheduledFloat((0.0, 0.0), (4000.0, 0.05), default=0.0),
-            max_abs=2.0,
-            prob=0.1,
-        )
 
     def forward(
         self,
@@ -583,12 +571,19 @@ class Zipformer2EncoderLayer(nn.Module):
         x1 = xt + (ans_t - xt) * (1. - t)
         diff = (x1 - ans) / (t - t**2)
 
-        diff_sqscale = (diff ** 2).mean(dim=2, keepdim=True)
-        G = 0.1      # scale on the global-mean part of the random-noise scale.
+        diff_scale = (diff ** 2).mean(dim=2, keepdim=True).sqrt()
+        ans_scale = (ans ** 2).mean(dim=2, keepdim=True).sqrt()
         scale = float(self.randomize_scale)
         with torch.cuda.amp.autocast(enabled=False):
-            diff_scale = ((scale * G) * diff_sqscale.to(torch.float).mean() + (scale * (1. - G)) * diff_sqscale).sqrt()
-        rand = torch.randn_like(src) * diff_scale
+            # float(self.randomize_scale) * diff_scale is the main term that penalizes deviations from
+            # linear "flow".  0.01 is a constant term that will motivate the network to increase the
+            # dynamic range of the activations.   0.1 * (ans_scale - 1).relu() is a term that
+            # will start adding a penalty if any frames have rms value greater than 1, so in combination
+            # with the 0.01 constant term this should keep the activations just under 1; this will
+            # also help to discourage 'outlier' frames that have larger-than-normal norm.
+            noise_scale = float(self.randomize_scale) * diff_scale + 0.01 + 0.1 * (ans_scale - 1).relu()
+
+        rand = torch.randn_like(src) * noise_scale
         if random.random() < 0.01 or __name__ == '__main__':
             # logging output
             ans_scale = (ans ** 2).mean().sqrt()
@@ -640,7 +635,7 @@ class Zipformer2EncoderLayer(nn.Module):
             src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
         )
 
-        src = src + self.balancer_ff2(self.feed_forward2(src))
+        src = src + self.feed_forward2(src)
 
         src = self.bypass(src_orig, src)
 
