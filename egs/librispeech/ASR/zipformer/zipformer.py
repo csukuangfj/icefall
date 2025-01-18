@@ -572,23 +572,22 @@ class Zipformer2EncoderLayer(nn.Module):
         diff = (x1 - ans) / (t - t**2)
 
         diff_scale = (diff ** 2).mean(dim=2, keepdim=True).sqrt()
-        ans_scale = (ans ** 2).mean(dim=2, keepdim=True).sqrt()
+        ans_scale_sq = (ans ** 2).mean(dim=2, keepdim=True)
+        ans_scale = ans_scale_sq.sqrt()
+
         scale = float(self.randomize_scale)
         with torch.cuda.amp.autocast(enabled=False):
             # float(self.randomize_scale) * diff_scale is the main term that penalizes deviations from
-            # linear "flow".  0.01 is a constant term that will motivate the network to increase the
-            # dynamic range of the activations.   0.1 * (ans_scale - 1).relu() is a term that
-            # will start adding a penalty if any frames have rms value greater than 1, so in combination
-            # with the 0.01 constant term this should keep the activations just under 1; this will
-            # also help to discourage 'outlier' frames that have larger-than-normal norm.
-            noise_scale = float(self.randomize_scale) * diff_scale + 0.01 + 0.1 * (ans_scale - 1).relu()
+            # linear "flow".
+            # 0.005 ( 1 + ans_scale_sq) is supposed to encourage the rms of embedding vectors to be
+            # about 1.
+            noise_scale = float(self.randomize_scale) * diff_scale + 0.005 * (1 + ans_scale_sq)
 
         rand = torch.randn_like(src) * noise_scale
         if random.random() < 0.01 or __name__ == '__main__':
             # logging output
-            ans_scale = (ans ** 2).mean().sqrt()
-            vt_scale = ((ans - src) ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: ans_scale={ans_scale}, vt_scale={vt_scale}, diff-scale={diff_sqscale.mean().sqrt()}")
+            vt_scale = ((ans - src) ** 2).mean(dim=2, keepdim=True).sqrt().mean()
+            logging.info(f"name={self.name}: ans_scale={ans_scale.mean()}, vt_scale={vt_scale}, diff-scale={diff_scale.mean()}")
 
         return self.norm(ans + rand)
 

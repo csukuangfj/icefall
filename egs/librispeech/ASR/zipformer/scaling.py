@@ -374,7 +374,7 @@ class BiasNormFunction(torch.autograd.Function):
     def forward(
         ctx,
         x: Tensor,
-        eps: Tensor,
+        log_eps: Tensor,
         power: Tensor,
         scale: Tensor,
         channel_dim: int,
@@ -384,11 +384,11 @@ class BiasNormFunction(torch.autograd.Function):
         ctx.channel_dim = channel_dim
 
         x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-        scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
+        scales = scale * (x_sq ** power + log_eps.exp()) ** (-0.5 / power)
         ans = x * scales
         ctx.save_for_backward(
             x.detach(),
-            eps.detach(),
+            log_eps.detach(),
             power.detach(),
             scale.detach(),
         )
@@ -396,18 +396,18 @@ class BiasNormFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, eps, power, scale = ctx.saved_tensors
+        x, log_eps, power, scale = ctx.saved_tensors
         with torch.cuda.amp.autocast(enabled=False):
-            x, power, eps, scale = x.to(torch.float32), power.to(torch.float32), eps.to(torch.float32), scale.to(torch.float32)
-            x, power, eps, scale = x.detach(), power.detach(), eps.detach(), scale.detach()
+            x, power, log_eps, scale = x.to(torch.float32), power.to(torch.float32), log_eps.to(torch.float32), scale.to(torch.float32)
+            x, power, log_eps, scale = x.detach(), power.detach(), log_eps.detach(), scale.detach()
             x.requires_grad = True
-            eps.requires_grad = True
+            log_eps.requires_grad = True
             power.requires_grad = True
             scale.requires_grad = True
 
             with torch.enable_grad():
                 x_sq = torch.mean(x ** 2, dim=ctx.channel_dim, keepdim=True)
-                scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
+                scales = scale * (x_sq ** power + log_eps.exp()) ** (-0.5 / power)
                 ans = x * scales
                 ans.backward(gradient=ans_grad.to(torch.float32))
 
@@ -416,7 +416,7 @@ class BiasNormFunction(torch.autograd.Function):
             # in autocast mode.
             return x.clamp_(min=-30000.0, max=30000.0)
 
-        return x.grad, c(eps.grad), c(power.grad), c(scale.grad), None
+        return x.grad, c(log_eps.grad), c(power.grad), c(scale.grad), None
 
 
 class BiasNorm(torch.nn.Module):
@@ -456,7 +456,7 @@ class BiasNorm(torch.nn.Module):
         self.num_channels = num_channels
         self.channel_dim = channel_dim
         self.scale = nn.Parameter(torch.tensor(2.0))
-        self.eps = nn.Parameter(torch.tensor(1.0))
+        self.log_eps = nn.Parameter(torch.tensor(0.0))
         self.power = nn.Parameter(torch.tensor(1.0))
 
         self.name = None
@@ -470,11 +470,11 @@ class BiasNorm(torch.nn.Module):
             if channel_dim < 0:
                 channel_dim += x.ndim
             x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-            scales = self.scale * (x_sq ** self.power + self.eps) ** (-0.5 / self.power)
+            scales = self.scale * (x_sq ** self.power + self.log_eps.exp()) ** (-0.5 / self.power)
             return (x * scales)
 
-        eps = limit_param_value(
-            self.eps, min=0.5, max=4.0, training=self.training)
+        log_eps = limit_param_value(
+            self.log_eps, min=-3.0, max=3.0, training=self.training)
 
         power = limit_param_value(
             self.power, min=0.25, max=2.0, training=self.training)
@@ -484,10 +484,10 @@ class BiasNorm(torch.nn.Module):
 
         if random.random() < 0.002:
             x_rms = (x ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: x_rms={x_rms}, power={power.item()}, eps**(1/power)={(eps ** (1/power))}, scale={scale.item()}, (eps**(0.5/power))/x_rms={(eps**(0.5/power))/x_rms}")
+            logging.info(f"name={self.name}: x_rms={x_rms}, power={power.item()}, eps={log_eps.exp()}, eps**(1/power)={(log_eps.exp() ** (1/power))}, scale={scale.item()}, (eps**(0.5/power))/x_rms={(log_eps.exp()**(0.5/power))/x_rms}")
 
         return BiasNormFunction.apply(
-            x, eps, power, scale, self.channel_dim,
+            x, log_eps, power, scale, self.channel_dim,
         )
 
 
