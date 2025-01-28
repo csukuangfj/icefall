@@ -523,6 +523,14 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
+        self.balancer = Balancer(
+            embed_dim,
+            channel_dim=-1,
+            min_positive=0.5,
+            max_positive=0.7,
+            min_abs=0.5,
+            max_abs=10.0,
+        )
 
         self.norm = BiasNorm(embed_dim)
 
@@ -637,6 +645,8 @@ class Zipformer2EncoderLayer(nn.Module):
         src = src + self.feed_forward2(src)
 
         src = self.bypass(src_orig, src)
+
+        src = self.balancer(src)
 
         return src
 
