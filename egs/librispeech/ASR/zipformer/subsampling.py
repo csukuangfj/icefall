@@ -271,6 +271,19 @@ class Conv2dSubsampling(nn.Module):
         self.layer3_channels = layer3_channels
 
         self.out = nn.Linear(self.out_width * layer3_channels, out_channels)
+
+        # we don't want very large values here as it could lead to nan's in the forward pass in fp16;
+        # this happened in some experiments.  that's the reason why this Balancer was inroduced, i.e
+        # the max_abs is the most important limit.
+        self.out_balancer = Balancer(
+            out_channels,
+            channel_dim=-1,
+            min_positive=0.2,
+            max_positive=0.8,
+            min_abs=0.5,
+            max_abs=5.0,
+        )
+
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
         # many copies of this extra gradient term.
@@ -316,6 +329,7 @@ class Conv2dSubsampling(nn.Module):
         # now x: (N, (T-7)//2, out_width * layer3_channels))
 
         x = self.out(x)
+        x = self.out_balancer(x)
         # Now x is of shape (N, (T-7)//2, odim)
         x = self.out_whiten(x)
         x = self.out_norm(x)
