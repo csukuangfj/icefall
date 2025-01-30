@@ -85,7 +85,14 @@ class ConvNeXt(nn.Module):
             initial_scale=0.01,
         )
 
-        self.out_balancer = ScaleBalancer()
+        self.out_balancer = Balancer(
+            channels,
+            channel_dim=1,
+            min_positive=0.4,
+            max_positive=0.6,
+            min_abs=1.0,
+            max_abs=6.0,
+        )
 
         self.out_whiten = Whiten(
             num_groups=1,
@@ -267,17 +274,7 @@ class Conv2dSubsampling(nn.Module):
 
         self.out = nn.Linear(self.out_width * layer3_channels, out_channels)
 
-        # we don't want very large values here as it could lead to nan's in the forward pass in fp16;
-        # this happened in some experiments.  that's the reason why this Balancer was inroduced, i.e
-        # the max_abs is the most important limit.
-        self.out_balancer = Balancer(
-            out_channels,
-            channel_dim=-1,
-            min_positive=0.2,
-            max_positive=0.8,
-            min_abs=0.5,
-            max_abs=5.0,
-        )
+        self.out_balancer = ScaleBalancer()
 
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
