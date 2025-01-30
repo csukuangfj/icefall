@@ -832,7 +832,7 @@ class Zipformer2Encoder(nn.Module):
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
 
-        randomize_proportion = 0.25
+        randomize_proportion = 0.1
         L = len(self.layers)
         # int(...) rounds down.  we'll only randomize >= 2 layers if L >= 8.
         num_randomize = max(1, int(0.5 + L * randomize_proportion))
