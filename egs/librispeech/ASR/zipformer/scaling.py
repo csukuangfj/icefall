@@ -568,9 +568,9 @@ class OrthogonalLinear(nn.Linear):
         self.min_product_scale = 0.01
         self.name = None  # will be set from training loop. for printing penalty.
 
-        # by default, initialize to the identity.
         with torch.no_grad():
-            self.weight[:] = torch.eye(num_channels)
+            # this is not orthogonal but should quickly become so.
+            self.weight[:] = torch.randn(num_channels, num_channels) * (num_channels ** -0.5)
 
     def forward(self, x: Tensor):
         ans = nn.functional.linear(x, self.weight, self.bias)

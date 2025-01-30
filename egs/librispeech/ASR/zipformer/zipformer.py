@@ -28,6 +28,7 @@ from encoder_interface import EncoderInterface
 from scaling import (
     Identity,  # more friendly to backward hooks than nn.Identity(), for diagnostic reasons.
     OrthogonalLinearSpecial,
+    OrthogonalLinear,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ActivationDropoutAndLinear,
     Balancer,
@@ -822,7 +823,7 @@ class Zipformer2Encoder(nn.Module):
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
 
-        randomize_proportion = 0.25
+        randomize_proportion = 0.1
         L = len(self.layers)
         # int(...) rounds down.  we'll only randomize >= 2 layers if L >= 8.
         num_randomize = max(1, int(0.5 + L * randomize_proportion))
@@ -999,7 +1000,7 @@ class InvertibleDownsample(torch.nn.Module):
     ):
         super().__init__()
         assert proj_dim <= channels * 2
-        self.proj = OrthogonalLinearSpecial(proj_dim, penalty_scale=penalty_scale)
+        self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -1045,9 +1046,7 @@ class InvertibleUpsample(torch.nn.Module):
     def __init__(self, channels: int, proj_dim: int, penalty_scale: float = 1000.0):
         super().__init__()
         assert proj_dim <= channels
-        self.proj = OrthogonalLinearSpecial(proj_dim,
-                                            penalty_scale=penalty_scale,
-                                            transpose=True)
+        self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
 
     def forward(self, src: Tensor) -> Tensor:
         """
