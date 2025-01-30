@@ -1032,7 +1032,7 @@ class ScaleBalancer(torch.nn.Module):
         r = torch.rand(*x_shape, device=x.device)
         prob = 0.05
         mask = (r < prob).to(x.dtype)
-        x_sq = (x ** 2).sum(dim=-1, keepdim=True)
+        x_sq = (x ** 2).mean(dim=-1, keepdim=True)
         x_sq_mean = (x_sq * mask).mean() / mask.mean().clamp_(min=0.5*prob)
 
         noise = ((self.noise_scale * (1 + x_sq_mean)) * mask) * torch.randn_like(x)
