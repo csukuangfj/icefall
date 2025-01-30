@@ -31,6 +31,7 @@ from scaling import (
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ActivationDropoutAndLinear,
     Balancer,
+    ScaleBalancer,
     BiasNorm,
     ChunkCausalDepthwiseConv1d,
     Dropout2,
@@ -523,17 +524,9 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        self.balancer = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_positive=0.5,
-            max_positive=0.7,
-            min_abs=0.5,
-            max_abs=10.0,
-        )
+        self.balancer = ScaleBalancer()
 
         self.norm = BiasNorm(embed_dim)
-
 
 
     def forward(
@@ -587,9 +580,7 @@ class Zipformer2EncoderLayer(nn.Module):
         with torch.cuda.amp.autocast(enabled=False):
             # float(self.randomize_scale) * diff_scale is the main term that penalizes deviations from
             # linear "flow".
-            # 0.005 ( 1 + ans_scale_sq) is supposed to encourage the rms of embedding vectors to be
-            # about 1.
-            noise_scale = scale * diff_scale + 0.005 * (1 + ans_scale_sq)
+            noise_scale = scale * diff_scale
 
         rand = torch.randn_like(src) * noise_scale
         if random.random() < 0.01 or __name__ == '__main__':

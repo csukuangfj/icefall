@@ -22,6 +22,7 @@ from typing import Tuple
 import torch
 from scaling import (
     Balancer,
+    ScaleBalancer,
     BiasNorm,
     Dropout3,
     FloatLike,
@@ -84,14 +85,8 @@ class ConvNeXt(nn.Module):
             initial_scale=0.01,
         )
 
-        self.out_balancer = Balancer(
-            channels,
-            channel_dim=1,
-            min_positive=0.4,
-            max_positive=0.6,
-            min_abs=1.0,
-            max_abs=6.0,
-        )
+        self.out_balancer = ScaleBalancer()
+
         self.out_whiten = Whiten(
             num_groups=1,
             whitening_limit=5.0,
