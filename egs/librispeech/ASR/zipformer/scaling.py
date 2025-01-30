@@ -1016,7 +1016,7 @@ class ScaleBalancer(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.noise_scale = 0.1
+        self.noise_scale = 0.2
 
 
     def forward(self, x: Tensor) -> Tensor:
@@ -1030,10 +1030,10 @@ class ScaleBalancer(torch.nn.Module):
         # embedding vectors.  This is to prevent the grads propagated this way from being so small
         # that when added to the main gradient term they make no difference, in fp16.
         r = torch.rand(*x_shape, device=x.device)
-        prob = 0.05
+        prob = 0.01
         mask = (r < prob).to(x.dtype)
         x_sq = (x ** 2).mean(dim=-1, keepdim=True)
-        x_sq_mean = (x_sq * mask).mean() / mask.mean().clamp_(min=0.5*prob)
+        x_sq_mean = (x_sq * mask).mean() / prob
 
         noise = ((self.noise_scale * (1 + x_sq_mean)) * mask) * torch.randn_like(x)
         return x + noise
