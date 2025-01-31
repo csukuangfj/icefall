@@ -811,7 +811,7 @@ def load_checkpoint_if_available(
         if "cur_epoch" in saved_params:
             params["start_epoch"] = saved_params["cur_epoch"]
 
-    return params
+    return saved_params
 
 
 def save_checkpoint(
