@@ -537,69 +537,6 @@ class Zipformer2EncoderLayer(nn.Module):
         chunk_size: int = -1,
         attn_mask: Optional[Tensor] = None,
         src_key_padding_mask: Optional[Tensor] = None,
-        randomize: bool = False,
-    ) -> Tensor:
-        """
-            Pass the input through the encoder layer.
-            Args:
-                src: the sequence to the encoder (required): shape (seq_len, batch_size, embedding_dim).
-             pos_emb: (1, 2*seq_len-1, pos_emb_dim) or (batch_size, 2*seq_len-1, pos_emb_dim)
-             chunk_size: the number of frames per chunk, of >= 0; if -1, no chunking.
-             attn_mask: the attention mask, of shape (batch_size, seq_len, seq_len) or (seq_len, seq_len),
-                    interpreted as (batch_size, tgt_seq_len, src_seq_len) or (tgt_seq_len, src_seq_len).
-                   True means masked position. May be None.
-        src_key_padding_mask:  the mask for padding, of shape (batch_size, seq_len); True means
-                 masked position.  May be None.
-             randomize: if true use a form of randomization/dropout that encourages invertibility.
-
-            Returns:
-               A tensor which has the same shape as src
-        """
-        ans = self.forward_internal(src, pos_emb, chunk_size,
-                                    attn_mask, src_key_padding_mask)
-        if torch.jit.is_scripting() or torch.jit.is_tracing() or not (self.training and randomize):
-            return self.norm(ans)
-
-        # we view the input 'src' as x0 and the answer 'ans' as x1, like in a flow-matching
-        # situation, and we compute an alternative version of x1 (called "x1" in the code)
-        # that is computed as two steps.  We then amplify the difference between "ans" and
-        # that alternative version of x1, and multiply it by random noise.
-
-        (seq_len, batch_size, emb_dim) = src.shape
-        t = torch.empty(batch_size, 1, device=src.device).uniform_(0.1, 0.9)
-        xt = src + (ans - src) * t
-        # ans_t is the network evaluated at t.  it's interpreted as xt + vt.
-        ans_t = self.forward_internal(xt, pos_emb, chunk_size, attn_mask, src_key_padding_mask)
-        x1 = xt + (ans_t - xt) * (1. - t)
-        diff = (x1 - ans) / (t - t**2)
-
-        diff_scale = (diff ** 2).mean(dim=2, keepdim=True).sqrt()
-        ans_scale_sq = (ans ** 2).mean(dim=2, keepdim=True)
-        ans_scale = ans_scale_sq.sqrt()
-
-        scale = float(self.randomize_scale)
-        with torch.cuda.amp.autocast(enabled=False):
-            # float(self.randomize_scale) * diff_scale is the main term that penalizes deviations from
-            # linear "flow".
-            noise_scale = scale * diff_scale
-
-        rand = torch.randn_like(src) * noise_scale
-        if random.random() < 0.01 or __name__ == '__main__':
-            # logging output
-            vt_scale = ((ans - src) ** 2).mean(dim=2, keepdim=True).sqrt().mean()
-            logging.info(f"name={self.name}: ans_scale={ans_scale.mean()}, vt_scale={vt_scale}, diff-scale={diff_scale.mean()}, noise-scale={noise_scale.mean()}")
-
-        return self.norm(ans + rand)
-
-
-
-    def forward_internal(
-        self,
-        src: Tensor,
-        pos_emb: Tensor,
-        chunk_size: int = -1,
-        attn_mask: Optional[Tensor] = None,
-        src_key_padding_mask: Optional[Tensor] = None,
     ) -> Tensor:
         """
             Pass the input through the encoder layer.
@@ -640,7 +577,7 @@ class Zipformer2EncoderLayer(nn.Module):
 
         src = self.balancer(src)
 
-        return src
+        return self.norm(src)
 
     def streaming_forward(
         self,
@@ -750,6 +687,8 @@ class Zipformer2EncoderLayer(nn.Module):
 
         src = self.bypass(src_orig, src)
 
+        src = self.norm(src)
+
         return (
             src,
             cached_key,
@@ -822,13 +761,6 @@ class Zipformer2Encoder(nn.Module):
         if num_channels > layer_dim:
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
-
-        randomize_proportion = 0.1
-        L = len(self.layers)
-        # int(...) rounds down.  we'll only randomize >= 2 layers if L >= 8.
-        num_randomize = max(1, int(0.5 + L * randomize_proportion))
-        randomize_layer = [ True ] * num_randomize + [ False ] * (L - num_randomize)
-        random.shuffle(randomize_layer)
         for i, mod in enumerate(self.layers):
             src = mod(
                 src,
@@ -836,7 +768,6 @@ class Zipformer2Encoder(nn.Module):
                 chunk_size=chunk_size,
                 attn_mask=attn_mask,
                 src_key_padding_mask=src_key_padding_mask,
-                randomize=randomize_layer[i],
             )
             # randomize_factor can be viewed as a simple version of an
             # importance-sampling factor.
