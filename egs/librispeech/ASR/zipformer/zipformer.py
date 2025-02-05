@@ -92,7 +92,6 @@ class Zipformer2(EncoderInterface):
            chunks.  Must not be less than cnn_module_kernel (after factoring in
            rounding and downsampling); an error will be thrown if this is violated.
     """
-
     def __init__(
         self,
         output_downsampling_factor: int = 2,
@@ -200,7 +199,6 @@ class Zipformer2(EncoderInterface):
         cur_downsample = set_downsample_factor(cur_downsample, output_downsampling_factor)
 
         self.encoders = nn.ModuleList(encoders)
-
 
 
     def get_chunk_info(self) -> Tuple[int, int]:
@@ -391,7 +389,7 @@ class Zipformer2(EncoderInterface):
                 layer_offset += num_layers
                 new_states += new_layer_states
 
-        x = x[..., :self.encoder_dim[-1]]
+        x = x[..., :max(self.encoder_dim)]  # for historical reasons.  can change this.
 
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2
