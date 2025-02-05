@@ -21,6 +21,7 @@ from typing import Optional, Tuple
 import k2
 import torch
 import torch.nn as nn
+from torch import Tensor
 from encoder_interface import EncoderInterface
 from lhotse.dataset import SpecAugment
 from scaling import ScaledLinear
