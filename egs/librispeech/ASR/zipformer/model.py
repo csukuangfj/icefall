@@ -122,6 +122,10 @@ class AsrModel(nn.Module):
         else:
             assert attention_decoder is None
 
+        self.reconstruction_proj = torch.nn.Linear(
+            encoder_dim, 2 * encoder_embed.in_channels)
+        self.reconstruction_loss = torch.nn.SmoothL1Loss(reduction='none', beta=1.0)
+
     def forward_encoder(
         self, x: torch.Tensor, x_lens: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -478,4 +482,58 @@ class AsrModel(nn.Module):
         else:
             attention_decoder_loss = torch.empty(0)
 
-        return simple_loss, pruned_loss, ctc_loss, attention_decoder_loss, cr_loss
+        reconstruction_loss = self.forward_reconstruction_loss(x, encoder_out,
+                                                               encoder_out_lens,
+                                                               use_cr_ctc)
+        if use_cr_ctc:
+            reconstruction_loss = reconstruction_loss * 0.5
+
+        return simple_loss, pruned_loss, ctc_loss, attention_decoder_loss, cr_loss, reconstruction_loss
+
+
+    def forward_reconstruction_loss(self,
+                                    log_mels: Tensor,
+                                    encoder_out: Tensor,
+                                    encoder_out_lens: Tensor,
+                                    use_cr_ctc: bool):
+        """
+        Compute and return reconstruction loss, a mixed l1/l2 loss on the input features.  If
+        use_cr_ctc then we swap the first and second halves of the batch.
+
+        Args:
+          log_mels: log-mel features of shape (batch_size, T, num_mels)
+         encoder_out: embeddings of shape (T_embed,  batch_size, encoder_dim)
+        """
+        if use_cr_ctc:
+            batch_size = log_mels.shape[0]
+            log_mels = torch.roll(log_mels, N // 2, dims=0)
+        num_mels = log_mels.shape[2]
+
+        pred_mels = self.reconstruction_proj(encoder_out) # (T_embed, batch_size, 2 * num_mels)
+        T_embed = pred_mels.shape[0]
+        pred_mels = pred_mels.reshape(T_embed, batch_size, 2, num_mels)
+        pred_mels = pred_mels.permute(1, 0, 2, 3).reshape(batch_size, T_embed * 2, num_mels)
+
+        excess_frames = log_mels.shape[1] - pred_mels.shape[1]
+        assert 0 < excess_frames < 10  # should be around 7 or 8I believe.
+        if random.random() < 0.01:
+            logging.info("excess_frames = ", excess_frames)  # TODO: remove this line
+
+        T = pred_mels.shape[1]
+        offset = excess_frames // 2
+        pred_mels = pred_mels[:, offset:offset+T]
+
+
+        lens = encoder_out_lens * 2
+        pad_mask = make_pad_mask(lens)  # boolean Tensor with True for masked positions
+        assert pad_mask.shape == (batch_size, T)
+        pad_mask = (~pad_mask).to(torch.float).unsqueeze(-1) # 0.0 for masked position
+        # padd_mask: (batch_size, T, 1)
+
+
+        # use 1.0 for the beta; note, log-mels have a fairly large dynamic range so this mostly
+        # helps to down-weight the effect of very silent silences.
+        loss = torch.nn.functional.smooth_l1_loss(log_mels * pad_mask, pred_mels * pad_mask,
+                                                  reduction='none', beta=1.0)
+        loss = loss.mean(dim=-1).sum()  # sum over all frames, but mean over mel bins.
+        return loss

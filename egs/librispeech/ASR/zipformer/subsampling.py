@@ -228,6 +228,7 @@ class Conv2dSubsampling(nn.Module):
             bottleneck dimension for 1d squeeze-excite
         """
         assert in_channels >= 7
+        self.in_channels = in_channels
         super().__init__()
 
         # The ScaleGrad module is there to prevent the gradients
@@ -308,9 +309,6 @@ class Conv2dSubsampling(nn.Module):
         """
         # On entry, x is (N, T, idim)
         x = x.unsqueeze(1)  # (N, T, idim) -> (N, 1, T, idim) i.e., (N, C, H, W)
-        # scaling x by 0.1 allows us to use a larger grad-scale in fp16 "amp" (automatic mixed precision)
-        # training, since the weights in the first convolution are otherwise the limiting factor for getting infinite
-        # gradients.
         x = self.conv(x)
         x = self.convnext(x)
 
