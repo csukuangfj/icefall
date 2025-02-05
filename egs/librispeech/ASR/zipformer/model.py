@@ -124,7 +124,7 @@ class AsrModel(nn.Module):
             assert attention_decoder is None
 
         self.reconstruction_proj = torch.nn.Linear(
-            encoder_dim, 2 * encoder_embed.in_channels)
+            encoder_dim, 4 * encoder_embed.in_channels)
         self.reconstruction_loss = torch.nn.SmoothL1Loss(reduction='none', beta=1.0)
 
     def forward_encoder(
@@ -503,29 +503,25 @@ class AsrModel(nn.Module):
 
         Args:
           log_mels: log-mel features of shape (batch_size, T, num_mels)
-         encoder_out: embeddings of shape (T_embed,  batch_size, encoder_dim)
+         encoder_out: embeddings of shape (batch_size, T_embed, encoder_dim)
         """
         if use_cr_ctc:
             batch_size = log_mels.shape[0]
-            log_mels = torch.roll(log_mels, N // 2, dims=0)
+            log_mels = torch.roll(log_mels, batch_size // 2, dims=0)
         num_mels = log_mels.shape[2]
 
-        pred_mels = self.reconstruction_proj(encoder_out) # (T_embed, batch_size, 2 * num_mels)
-        T_embed = pred_mels.shape[0]
-        pred_mels = pred_mels.reshape(T_embed, batch_size, 2, num_mels)
-        pred_mels = pred_mels.permute(1, 0, 2, 3).reshape(batch_size, T_embed * 2, num_mels)
+        pred_mels = self.reconstruction_proj(encoder_out) # (batch_size, T_embed, 4 * num_mels)
+        T_embed = pred_mels.shape[1]
+        pred_mels = pred_mels.reshape(batch_size, T_embed * 4, num_mels)
 
         excess_frames = log_mels.shape[1] - pred_mels.shape[1]
-        assert 0 < excess_frames < 10  # should be around 7 or 8I believe.
-        if random.random() < 0.01:
-            logging.info("excess_frames = ", excess_frames)  # TODO: remove this line
+        assert 4 < excess_frames < 10  # should be around 7 or 8 I believe.
 
         T = pred_mels.shape[1]
-        offset = excess_frames // 2
-        pred_mels = pred_mels[:, offset:offset+T]
+        offset = 3 # i found excess_frames = 5 one time.
+        log_mels = log_mels[:, offset:offset+T]
 
-
-        lens = encoder_out_lens * 2
+        lens = encoder_out_lens * 4
         pad_mask = make_pad_mask(lens)  # boolean Tensor with True for masked positions
         assert pad_mask.shape == (batch_size, T)
         pad_mask = (~pad_mask).to(torch.float).unsqueeze(-1) # 0.0 for masked position
