@@ -995,7 +995,7 @@ class InvertibleUpsample(torch.nn.Module):
     """
     def __init__(self, channels: int, proj_dim: int,
                  penalty_scale: float = 1000.0,
-                 rotate_prob: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.5), (8000.0, 0.0))):
+                 rotate_prob: FloatLike = ScheduledFloat((0.0, 1.0), (8000.0, 0.0))):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
