@@ -993,10 +993,13 @@ class InvertibleUpsample(torch.nn.Module):
                 scale is smaller you may want this to be smaller.
 
     """
-    def __init__(self, channels: int, proj_dim: int, penalty_scale: float = 1000.0):
+    def __init__(self, channels: int, proj_dim: int,
+                 penalty_scale: float = 1000.0,
+                 rotate_prob: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.2), (8000.0, 0.0))):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
+        self.rotate_prob = copy.deepcopy(rotate_prob)
 
     def forward(self, src: Tensor) -> Tensor:
         """
@@ -1013,10 +1016,30 @@ class InvertibleUpsample(torch.nn.Module):
         else:
             src = self.proj(src)
 
-        src = torch.stack((src[..., 0::2], src[..., 1::2]),
+
+        a, b = src[..., 0::2], src[..., 1::2]
+
+
+        if not torch.jit.is_scripting() and not torch.jit.is_tracing() and self.training:
+            a, b = self._random_rotate(a, b)
+
+        src = torch.stack((a, b),
                           dim=1)  # (seq_len, 2, batch_size, in_channels // 2)
         src = src.reshape(seq_len * 2, batch_size, in_channels // 2)
         return src
+
+    def _random_rotate(self, a: Tensor, b: Tensor):
+        rotate_prob = float(self.rotate_prob)
+        if rotate_prob == 0.0:
+            return a, b
+
+        mean = 0.5 * (a + b)
+        diff = 0.5 * (b - a)
+
+        diff_scale = torch.empty_like(a[..., :1]).uniform_(-1.0, 1.0)
+        diff = diff * diff_scale
+        return mean - diff, mean + diff
+
 
 
 class CompactRelPositionalEncoding(torch.nn.Module):
