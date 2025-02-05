@@ -995,7 +995,7 @@ class InvertibleUpsample(torch.nn.Module):
     """
     def __init__(self, channels: int, proj_dim: int,
                  penalty_scale: float = 1000.0,
-                 rotate_prob: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.2), (8000.0, 0.0))):
+                 rotate_prob: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.5), (8000.0, 0.0))):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
@@ -1036,7 +1036,10 @@ class InvertibleUpsample(torch.nn.Module):
         mean = 0.5 * (a + b)
         diff = 0.5 * (b - a)
 
-        diff_scale = torch.empty_like(a[..., :1]).uniform_(-1.0, 1.0)
+        x = a[..., :1]
+        diff_scale = torch.where(torch.rand_like(x) < rotate_prob,
+                                 torch.empty_like(x).uniform_(-1.0, 1.0),
+                                 torch.ones_like(x))
         diff = diff * diff_scale
         return mean - diff, mean + diff
 
