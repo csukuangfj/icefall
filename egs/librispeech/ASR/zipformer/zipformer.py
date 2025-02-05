@@ -721,7 +721,7 @@ class Zipformer2Encoder(nn.Module):
         num_layers: int,
         pos_dim: int,
         dropout: float,
-        bypass_noise: FloatLike = ScheduledFloat((0.0, 0.5), (10000.0, 0.05)),
+        bypass_noise: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.2), (8000.0, 0.0)),
     ) -> None:
         super().__init__()
         self.encoder_pos = CompactRelPositionalEncoding(
