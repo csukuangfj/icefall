@@ -1035,8 +1035,8 @@ class ScaleBalancer(torch.nn.Module):
         mask = (r < prob).to(x.dtype)
         x_sq = (x ** 2).mean(dim=(0,2), keepdim=True)
 
-        noise = ((self.noise_scale * (1 + x_sq)) * mask) * torch.randn_like(x)
-        if random.random() < 0.001 or True:
+        noise = (((0.5 * self.noise_scale) * (1 + x_sq)) * mask) * torch.randn_like(x)
+        if random.random() < 0.001:
             logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, noise_rms={self.noise_scale*(1+x_sq.mean()).item()}")
         return x + noise
 
