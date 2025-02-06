@@ -1016,28 +1016,28 @@ class ScaleBalancer(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.noise_scale = 0.2
+        self.noise_scale = 0.05
         self.name = None
 
     def forward(self, x: Tensor) -> Tensor:
         if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
             return _no_op(x)
 
-        x_shape = list(x.shape)
-        x_shape[-1] = 1
+
+        # the mask is random over the batch dim.
+        mask_shape = [1, x.shape[1], 1]
 
         # we estimate the rms value of x from about 1 in 20 embedding vectors, or at most about 500
         # embedding vectors.  This is to prevent the grads propagated this way from being so small
         # that when added to the main gradient term they make no difference, in fp16.
-        r = torch.rand(*x_shape, device=x.device)
+        r = torch.rand(*mask_shape, device=x.device)
         prob = 0.01
         mask = (r < prob).to(x.dtype)
-        x_sq = (x ** 2).mean(dim=-1, keepdim=True)
-        x_sq_mean = (x_sq * mask).mean() / prob
+        x_sq = (x ** 2).mean(dim=(0,2), keepdim=True)
 
-        noise = ((self.noise_scale * (1 + x_sq_mean)) * mask) * torch.randn_like(x)
-        if random.random() < 0.001:
-            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, noise_rms={self.noise_scale*(1+(x**2).mean()).item()}")
+        noise = ((self.noise_scale * (1 + x_sq)) * mask) * torch.randn_like(x)
+        if random.random() < 0.001 or True:
+            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, noise_rms={self.noise_scale*(1+x_sq.mean()).item()}")
         return x + noise
 
 
