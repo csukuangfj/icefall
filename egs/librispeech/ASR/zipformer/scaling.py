@@ -1017,7 +1017,7 @@ class ScaleBalancer(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.noise_scale = 0.2
-
+        self.name = None
 
     def forward(self, x: Tensor) -> Tensor:
         if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
@@ -1036,6 +1036,8 @@ class ScaleBalancer(torch.nn.Module):
         x_sq_mean = (x_sq * mask).mean() / prob
 
         noise = ((self.noise_scale * (1 + x_sq_mean)) * mask) * torch.randn_like(x)
+        if random.random() < 0.001:
+            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, noise_rms={self.noise_scale*(1+(x**2).mean()).item()}")
         return x + noise
 
 

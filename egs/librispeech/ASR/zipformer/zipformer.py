@@ -725,7 +725,7 @@ class Zipformer2Encoder(nn.Module):
         self.encoder_pos = CompactRelPositionalEncoding(
             pos_dim, dropout_rate=0.0, length_factor=1.0
         )
-
+        self.name = None
         self.layers = nn.ModuleList(
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
         )
@@ -791,6 +791,11 @@ class Zipformer2Encoder(nn.Module):
         # training, should reduce certain biases caused by roundoff which otherwise
         # tend to lead the embeddings to get smaller in scale.
         noise_scale = (0.5 * bypass_scale) * ((x ** 2).mean(dim=-1, keepdim=True) + 1.0)
+
+        if random.random() < 0.001:
+            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, bypass_scale={bypass_scale}, noise_rms={noise_scale.mean()}")
+
+
         return x + torch.randn_like(x) * noise_scale
 
 
