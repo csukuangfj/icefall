@@ -523,7 +523,16 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        self.balancer = ScaleBalancer()
+        # warm up the grad_scale slowly so it does not cause instability
+        # near the beginning of training.
+        self.balancer = Balancer(
+            embed_dim,
+            channel_dim=-1,
+            min_abs=0.1,
+            max_abs=1.0,
+            grad_scale=ScheduledFloat((0.0, 0.0), (10000.0, 0.005)),
+        )
+
 
         self.norm = BiasNorm(embed_dim)
 
@@ -1211,8 +1220,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         self.balance_keys = Balancer(
             key_head_dim * num_heads,
             channel_dim=-1,
-            min_positive=0.4,
-            max_positive=0.6,
+            min_positive=0.1,
+            max_positive=0.9,
             min_abs=0.0,
             max_abs=100.0,
             prob=0.025,
