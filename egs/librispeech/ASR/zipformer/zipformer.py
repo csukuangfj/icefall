@@ -1534,9 +1534,13 @@ class SelfAttention(nn.Module):
             num_heads * value_head_dim, embed_dim, bias=True, initial_scale=0.05
         )
 
+        f = max(1.0, embed_dim / (num_heads * value_head_dim))
+        # the whitening metric cannot be less than f because of the rank imposed
+        # by the bottleneck.  the final whitening limit will be (2.0*3.0) times f,
+        # i.e. 6 times greater than the mathematical smallest value it can have.
         self.whiten = Whiten(
             num_groups=1,
-            whitening_limit=_whitening_schedule(7.5, ratio=3.0),
+            whitening_limit=_whitening_schedule(f * 2.0, ratio=3.0),
             prob=(0.025, 0.25),
             grad_scale=0.01,
         )
