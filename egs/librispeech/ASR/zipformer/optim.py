@@ -240,8 +240,16 @@ def scaling_step(group, p, state, grad):
 
 
 def momentum_step(group, p, state, grad):
+    # This takes care of momentum and temporary-noise.
     delta = scaling_step(group, p, state, grad)
     beta1 = group["betas"][0]
+
+    # see the very long comment below for how noise_factor is set, it's to ensure
+    # the variance of temporary noise present at any given point equals
+    # group["noise_scale"].
+    noise_factor = group["noise_scale"] * ((1 - beta1**2) ** 0.5) / beta1
+    noise = torch.randn_like(p) * noise_factor
+
     try:
         stored_delta = state["delta"]
     except KeyError:
@@ -249,10 +257,50 @@ def momentum_step(group, p, state, grad):
         state["delta"] = stored_delta
     stored_delta.mul_(beta1)
     stored_delta.add_(delta, alpha=(1-beta1))
+
+    # we need to add the noise to stored_delta below with an alpha (i.e. a scale) that will ensure
+    # that it eventually gets totally subtracted.  At the end of this function we'll return
+    # stored_delta + noise (just take that as a given),
+    # so the total scale of the noise-that-we-add-on-this-step, that will eventually be added
+    # to the parameters, will be
+    # 1.0 [for the "+ noise" term below] +
+    # \alpha \sum_i=0^\infty beta1^i
+    # so we need 1.0 +  \alpha / (1-beta1) = 0,  [this is what makes the noise "temporary"].
+    # which we solve to \alpha = (beta1-1).
+    # Now we want to know the total variance of the noise present at any given point, so we
+    # can set the variance to group["noise_scale"] ** 2 (noise_scale is user-specified).
+    #
+    # The total variance of noise on step t will be:
+    #  noise_factor**2 * \sum_{k=0}^\infty var_of_noise_from_step[t-k]       (eqn:1)
+    # .. note, the value of t doesn't matter.
+    #
+    # var_of_noise_from_step[t-k] = scale_of_noise_from_step[t-k] ** 2.
+    # (by scale_of_noise_from_step[t-k] we mean the scale excluding the factor of noise_factor).
+    #
+    #  We can write scale_of_noise_from_step[t-k] as 1 + {a difference of infinite sums};
+    # the 1 comes from the "+ noise" when we return below.
+    # It is:
+    #  scale_of_noise_from_step[t-k] = 1 + \alpha / (1-beta1) - \alpha \beta1^{k+1} / (1-beta1)
+    # (the 1/(1-beta1) both come from infinite sums: \sum_j=0^\infty beta1**k. Interpret
+    # the above as: 1 + {sum-of-all-terms} - {sum-of-all-terms-past-k}.
+    # Substituting alpha=beta1-1:
+    #  scale_of_noise_from_step[t-k] = 1 + (beta1-1) / (1-beta1) - (beta1-1) \beta1^{k+1} / (1-beta1)
+    #  scale_of_noise_from_step[t-k] = beta1^{k+1}  # everything else cancels.
+    # So:
+    #  var_of_noise_from_step[t-k] = (beta1**2)^{k+1}
+    # So:
+    #  \sum_{k=0}^\infty var_of_noise_from_step[t-k] = (beta1**2) / (1 - beta1**2)
+    #
+    # Now we want the expression of (eqn:1) to equal group["noise_scale"] ** 2, i.e.
+    #  noise_factor**2 * (beta1**2) / (1 - beta1**2) = group["noise_scale"] ** 2
+    # i.e.
+    #  noise_factor = group["noise_scale"] * sqrt(1-beta1**2) / beta1.
+    stored_delta.add_(noise, alpha=(beta1-1))
+
     # we don't bother doing the "bias correction" part of Adam for beta1 because this is just
     # an edge effect that affects the first 10 or so batches; and the effect of not doing it
     # is just to do a slower update for the first few batches, which will help stability.
-    return stored_delta
+    return stored_delta + noise
 
 
 
@@ -287,6 +335,11 @@ class ScaledAdam(BatchedOptimizer):
                    as p * p_scale.exp(), where (p**2).mean().sqrt() == 1.0, scalar_lr_scale
                    would be a the scaling factor on the learning rate of p_scale.
               eps:  A general-purpose epsilon to prevent division by zero
+      noise_scale:  The amount of temporary parameter noise that we add.  This is added
+                   in an absolute sense, not scaled by the parameter RMS; it is a mechanism
+                   to attempt to balance the parameter rms values and avoid excessive
+                   sensitivity to any parameters.  It is "temporary" because we subtract it
+                   again via the moving average.
     param_min_rms: Minimum root-mean-square value of parameter tensor, for purposes of
                    learning the scale on the parameters (we'll constrain the rms of each non-scalar
                    parameter tensor to be >= this value)
@@ -311,6 +364,7 @@ class ScaledAdam(BatchedOptimizer):
         eps=1.0e-08,
         param_min_rms=1.0e-05,
         param_max_rms=3.0,
+        noise_scale=1.0e-04,
         scalar_max=10.0,
         size_update_period=4,
         clipping_update_period=100,
@@ -324,6 +378,7 @@ class ScaledAdam(BatchedOptimizer):
             eps=eps,
             param_min_rms=param_min_rms,
             param_max_rms=param_max_rms,
+            noise_scale=noise_scale,
             scalar_max=scalar_max,
             size_update_period=size_update_period,
             clipping_update_period=clipping_update_period,
