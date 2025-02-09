@@ -523,16 +523,6 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        # warm up the grad_scale slowly so it does not cause instability
-        # near the beginning of training.
-        self.balancer = Balancer(
-            embed_dim,
-            channel_dim=-1,
-            min_abs=0.1,
-            max_abs=1.0,
-            grad_scale=ScheduledFloat((0.0, 0.0), (10000.0, 0.005)),
-        )
-
 
         self.norm = BiasNorm(embed_dim)
 
@@ -581,8 +571,6 @@ class Zipformer2EncoderLayer(nn.Module):
         src = src + self.feed_forward2(src)
 
         src = self.bypass(src_orig, src)
-
-        src = self.balancer(src)
 
         return self.norm(src)
 
@@ -1209,24 +1197,6 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
             grad_scale=0.025,
         )
 
-        # add a balancer for the keys that runs with very small probability, and
-        # tries to enforce that all dimensions have mean around zero.  The
-        # weights produced by this module are invariant to adding a constant to
-        # the keys, so the derivative of the bias is mathematically zero; but
-        # due to how Adam/ScaledAdam work, it can learn a fairly large nonzero
-        # bias because the small numerical roundoff tends to have a non-random
-        # sign.  This module is intended to prevent that.  Use a very small
-        # probability; that should be sufficient to fix the problem.
-        self.balance_keys = Balancer(
-            key_head_dim * num_heads,
-            channel_dim=-1,
-            min_positive=0.1,
-            max_positive=0.9,
-            min_abs=0.0,
-            max_abs=100.0,
-            prob=0.025,
-        )
-
         # linear transformation for positional encoding.
         self.linear_pos = ScaledLinear(
             pos_dim, num_heads * pos_head_dim, bias=False, initial_scale=0.05
@@ -1277,7 +1247,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         )
 
         q = self.copy_query(q)  # for diagnostics only, does nothing.
-        k = self.whiten_keys(self.balance_keys(k))  # does nothing in the forward pass.
+        k = self.whiten_keys(k) # does nothing in the forward pass.
         p = self.copy_pos_query(p)  # for diagnostics only, does nothing.
 
         q = q.reshape(seq_len, batch_size, num_heads, query_head_dim)
@@ -1657,15 +1627,6 @@ class FeedforwardModule(nn.Module):
         super(FeedforwardModule, self).__init__()
         self.in_proj = nn.Linear(embed_dim, feedforward_dim)
 
-        self.hidden_balancer = Balancer(
-            feedforward_dim,
-            channel_dim=-1,
-            min_positive=0.3,
-            max_positive=1.0,
-            min_abs=0.75,
-            max_abs=5.0,
-        )
-
         # shared_dim=0 means we share the dropout mask along the time axis
         self.out_proj = ActivationDropoutAndLinear(
             feedforward_dim,
@@ -1686,7 +1647,6 @@ class FeedforwardModule(nn.Module):
 
     def forward(self, x: Tensor):
         x = self.in_proj(x)
-        x = self.hidden_balancer(x)
         # out_proj contains SwooshL activation, then dropout, then linear.
         x = self.out_proj(x)
         x = self.out_whiten(x)
@@ -1713,18 +1673,6 @@ class NonlinAttention(nn.Module):
 
         self.in_proj = nn.Linear(channels, hidden_channels * 3, bias=True)
 
-        # balancer that goes before the sigmoid.  Have quite a large min_abs value, at 2.0,
-        # because we noticed that well-trained instances of this module have abs-value before the sigmoid
-        # starting from about 3, and poorly-trained instances of the module have smaller abs values
-        # before the sigmoid.
-        self.balancer = Balancer(
-            hidden_channels,
-            channel_dim=-1,
-            min_positive=ScheduledFloat((0.0, 0.25), (20000.0, 0.05)),
-            max_positive=ScheduledFloat((0.0, 0.75), (20000.0, 0.95)),
-            min_abs=0.5,
-            max_abs=5.0,
-        )
         self.tanh = nn.Tanh()
 
         self.identity1 = Identity()  # for diagnostics.
@@ -1770,7 +1718,6 @@ class NonlinAttention(nn.Module):
 
         # s will go through tanh.
 
-        s = self.balancer(s)
         s = self.tanh(s)
 
         s = s.unsqueeze(-1).reshape(seq_len, batch_size, hidden_channels)
@@ -1890,27 +1837,6 @@ class ConvolutionModule(nn.Module):
         # the gradients on in_proj are a little noisy, likely to do with the
         # sigmoid in glu.
 
-        # after in_proj we put x through a gated linear unit (nn.functional.glu).
-        # For most layers the normal rms value of channels of x seems to be in the range 1 to 4,
-        # but sometimes, for some reason, for layer 0 the rms ends up being very large,
-        # between 50 and 100 for different channels.  This will cause very peaky and
-        # sparse derivatives for the sigmoid gating function, which will tend to make
-        # the loss function not learn effectively.  (for most layers the average absolute values
-        # are in the range 0.5..9.0, and the average p(x>0), i.e. positive proportion,
-        # at the output of pointwise_conv1.output is around 0.35 to 0.45 for different
-        # layers, which likely breaks down as 0.5 for the "linear" half and
-        # 0.2 to 0.3 for the part that goes into the sigmoid.  The idea is that if we
-        # constrain the rms values to a reasonable range via a constraint of max_abs=10.0,
-        # it will be in a better position to start learning something, i.e. to latch onto
-        # the correct range.
-        self.balancer1 = Balancer(
-            bottleneck_dim,
-            channel_dim=-1,
-            min_positive=ScheduledFloat((0.0, 0.05), (8000.0, 0.025)),
-            max_positive=1.0,
-            min_abs=1.5,
-            max_abs=ScheduledFloat((0.0, 5.0), (8000.0, 10.0), default=1.0),
-        )
 
         self.activation1 = Identity()  # for diagnostics
 
@@ -1930,15 +1856,6 @@ class ConvolutionModule(nn.Module):
                 kernel_size=kernel_size,
                 padding=kernel_size // 2,
             )
-        )
-
-        self.balancer2 = Balancer(
-            bottleneck_dim,
-            channel_dim=1,
-            min_positive=ScheduledFloat((0.0, 0.1), (8000.0, 0.05)),
-            max_positive=1.0,
-            min_abs=ScheduledFloat((0.0, 0.2), (20000.0, 0.5)),
-            max_abs=10.0,
         )
 
         self.whiten = Whiten(
@@ -1977,7 +1894,6 @@ class ConvolutionModule(nn.Module):
         x = self.in_proj(x)  # (time, batch, 2*channels)
 
         x, s = x.chunk(2, dim=2)
-        s = self.balancer1(s)
         s = self.sigmoid(s)
         x = self.activation1(x)  # identity.
         x = x * s
@@ -2004,7 +1920,6 @@ class ConvolutionModule(nn.Module):
         else:
             x = self.depthwise_conv(x)
 
-        x = self.balancer2(x)
         x = x.permute(2, 0, 1)  # (time, batch, channels)
 
         x = self.whiten(x)  # (time, batch, channels)

@@ -68,30 +68,12 @@ class ConvNeXt(nn.Module):
             in_channels=channels, out_channels=hidden_channels, kernel_size=1
         )
 
-        self.hidden_balancer = Balancer(
-            hidden_channels,
-            channel_dim=1,
-            min_positive=0.3,
-            max_positive=1.0,
-            min_abs=0.75,
-            max_abs=5.0,
-        )
-
         self.activation = SwooshL()
         self.pointwise_conv2 = ScaledConv2d(
             in_channels=hidden_channels,
             out_channels=channels,
             kernel_size=1,
             initial_scale=0.01,
-        )
-
-        self.out_balancer = Balancer(
-            channels,
-            channel_dim=1,
-            min_positive=0.4,
-            max_positive=0.6,
-            min_abs=1.0,
-            max_abs=6.0,
         )
 
         self.out_whiten = Whiten(
@@ -129,7 +111,6 @@ class ConvNeXt(nn.Module):
         bypass = x
         x = self.depthwise_conv(x)
         x = self.pointwise_conv1(x)
-        x = self.hidden_balancer(x)
         x = self.activation(x)
         x = self.pointwise_conv2(x)
 
@@ -137,7 +118,6 @@ class ConvNeXt(nn.Module):
             x = x * layer_skip_mask
 
         x = bypass + x
-        x = self.out_balancer(x)
 
         if x.requires_grad:
             x = x.transpose(1, 3)  # (N, W, H, C); need channel dim to be last
@@ -185,7 +165,6 @@ class ConvNeXt(nn.Module):
             groups=self.depthwise_conv.groups,
         )
         x = self.pointwise_conv1(x)
-        x = self.hidden_balancer(x)
         x = self.activation(x)
         x = self.pointwise_conv2(x)
 
@@ -245,7 +224,6 @@ class Conv2dSubsampling(nn.Module):
                 padding=(0, 1),  # (time, freq)
             ),
             ScaleGrad(0.2),
-            Balancer(layer1_channels, channel_dim=1, max_abs=1.0),
             SwooshR(),
             nn.Conv2d(
                 in_channels=layer1_channels,
@@ -254,7 +232,6 @@ class Conv2dSubsampling(nn.Module):
                 stride=2,
                 padding=0,
             ),
-            Balancer(layer2_channels, channel_dim=1, max_abs=4.0),
             SwooshR(),
             nn.Conv2d(
                 in_channels=layer2_channels,
@@ -262,7 +239,6 @@ class Conv2dSubsampling(nn.Module):
                 kernel_size=3,
                 stride=(1, 2),  # (time, freq)
             ),
-            Balancer(layer3_channels, channel_dim=1, max_abs=4.0),
             SwooshR(),
         )
 
@@ -274,9 +250,6 @@ class Conv2dSubsampling(nn.Module):
         self.layer3_channels = layer3_channels
 
         self.out = nn.Linear(self.out_width * layer3_channels, out_channels)
-
-        self.out_balancer = Balancer(
-            out_channels, channel_dim=-1, min_abs=0.2, max_abs=1.0)
 
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
@@ -320,7 +293,6 @@ class Conv2dSubsampling(nn.Module):
         # now x: (N, (T-7)//2, out_width * layer3_channels))
 
         x = self.out(x)
-        x = self.out_balancer(x)
         # Now x is of shape (N, (T-7)//2, odim)
         x = self.out_whiten(x)
         x = self.out_norm(x)
