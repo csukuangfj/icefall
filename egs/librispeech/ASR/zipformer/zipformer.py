@@ -31,8 +31,7 @@ from scaling import (
     OrthogonalLinear,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ActivationDropoutAndLinear,
-    Balancer,
-    ScaleBalancer,
+    ScaleLimiter,
     BiasNorm,
     ChunkCausalDepthwiseConv1d,
     Dropout2,

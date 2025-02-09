@@ -1007,39 +1007,56 @@ class Balancer(torch.nn.Module):
             return _no_op(x)
 
 
+class ScaleLimiterFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: Tensor, max_scale: float):
+        ctx.save_for_backward(x)
+        ctx.max_scale = max_scale
+        return x
 
-class ScaleBalancer(torch.nn.Module):
+    @staticmethod
+    def backward(ctx, y_grad: Tensor):
+        x, = ctx.saved_tensors
+        # you could think of loss_scale as like a mask, it's nonzero if
+        # (x**2).mean() > 1.0, but it starts of small if we are close to 1.0
+        # so we don't suddenly add large gradients that could be destabilizing.
+        eps = 0.01
+        loss_scale = eps * ((x ** 2).mean() - ctx.max_scale).relu()
+        y_grad_rms = (y_grad ** 2).mean().sqrt()
+        # y_grad_rms is a scaling factor for the gradient contribution, since we
+        # don't know at this point the total scale of the main loss.
+
+        # the grad of (x ** 2).mean() would be 2 * x.  we absorb the factor of 2
+        # into eps, which is just an arbitrary smallish value.
+        return y_grad + (loss_scale * y_grad_rms) * x, None
+
+
+class ScaleLimiter(torch.nn.Module):
     """
-    Tries to make the rms value of the features around 1, using
-    strategically added noise.  This is not per dimension, but globally.
+    Tries to make the rms value of the features no greater than self.max_scale, by
+    adding a penalty.  This is not per dimension, but globally.
     Assumes channel dim is -1 and the input shape has >1 dimension.
     """
-
-    def __init__(self):
+    def __init__(self, max_scale: FloatLike = 1.0, prob: FloatLike = 1.0):
         super().__init__()
-        self.noise_scale = 0.05
         self.name = None
+        self.max_scale = max_scale
+        self.prob = prob
 
     def forward(self, x: Tensor) -> Tensor:
         if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
             return _no_op(x)
-
-
-        # the mask is random over the batch dim.
-        mask_shape = [1, x.shape[1], 1]
-
-        # we estimate the rms value of x from about 1 in 20 embedding vectors, or at most about 500
-        # embedding vectors.  This is to prevent the grads propagated this way from being so small
-        # that when added to the main gradient term they make no difference, in fp16.
-        r = torch.rand(*mask_shape, device=x.device)
-        prob = 0.01
-        mask = (r < prob).to(x.dtype)
-        x_sq = (x ** 2).mean(dim=(0,2), keepdim=True)
-
-        noise = (((0.5 * self.noise_scale) * (1 + x_sq)) * mask) * torch.randn_like(x)
-        if random.random() < 0.001:
-            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, noise_rms={self.noise_scale*(1+x_sq.mean()).item()}")
-        return x + noise
+        else:
+            # this in effect adds a penalty to the loss function if
+            # (x ** 2).mean() > 1.0, the penalty will tend to reduce the value
+            # of (x ** 2).
+            if random.random() < 0.001:
+                logging.info(f"name={self.name}, max_scale={float(self.max_scale)}, prob={float(self.prob)}, x_rms={(x**2).mean().sqrt().item()}")
+            prob = float(self.prob)
+            if prob > 0 and random.random() < prob:
+                return ScaleLimiterFunction.apply(x, float(self.max_scale))
+            else:
+                return x
 
 
 def penalize_abs_values_gt(

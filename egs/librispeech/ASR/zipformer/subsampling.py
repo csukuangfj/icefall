@@ -22,7 +22,7 @@ from typing import Tuple
 import torch
 from scaling import (
     Balancer,
-    ScaleBalancer,
+    ScaleLimiter,
     BiasNorm,
     Dropout3,
     FloatLike,
@@ -251,6 +251,8 @@ class Conv2dSubsampling(nn.Module):
 
         self.out = nn.Linear(self.out_width * layer3_channels, out_channels)
 
+        self.out_limiter = ScaleLimiter(max_scale=0.5)
+
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
         # many copies of this extra gradient term.
@@ -293,6 +295,7 @@ class Conv2dSubsampling(nn.Module):
         # now x: (N, (T-7)//2, out_width * layer3_channels))
 
         x = self.out(x)
+        x = self.out_limiter(x)
         # Now x is of shape (N, (T-7)//2, odim)
         x = self.out_whiten(x)
         x = self.out_norm(x)
@@ -346,6 +349,7 @@ class Conv2dSubsampling(nn.Module):
 
         x = self.out(x)
         # Now x is of shape (N, T', odim)
+        x = self.out_limiter(x)
         x = self.out_norm(x)
 
         if torch.jit.is_scripting() or torch.jit.is_tracing():
