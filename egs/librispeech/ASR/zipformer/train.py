@@ -1341,6 +1341,9 @@ def run(rank, world_size, args):
         get_parameter_groups_with_lrs(model, lr=params.base_lr, include_names=True),
         lr=params.base_lr,  # should have no effect
         clipping_scale=2.0,
+        size_update_period=1, # for some reason, setting this to 1 (default is
+                              # 4) seems to stop the embeddings from getting too
+                              # small.
     )
 
     scheduler = Eden(optimizer, params.lr_batches, params.lr_epochs,
