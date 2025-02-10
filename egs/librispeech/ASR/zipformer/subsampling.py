@@ -23,6 +23,7 @@ import torch
 from scaling import (
     Balancer,
     ScaleLimiter,
+    ScaledLinear,
     BiasNorm,
     Dropout3,
     FloatLike,
@@ -249,7 +250,9 @@ class Conv2dSubsampling(nn.Module):
         self.out_width = (((in_channels - 1) // 2) - 1) // 2
         self.layer3_channels = layer3_channels
 
-        self.out = nn.Linear(self.out_width * layer3_channels, out_channels)
+        # scale it up a bit, else the output is quite small.
+        self.out = ScaledLinear(self.out_width * layer3_channels, out_channels,
+                                initial_scale=2.0)
 
         self.out_limiter = ScaleLimiter(max_scale=0.5)
 
