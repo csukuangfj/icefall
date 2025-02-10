@@ -567,7 +567,6 @@ class OrthogonalLinear(nn.Linear):
         self.penalty_scale = copy.deepcopy(penalty_scale)
         self.min_product_scale = 0.01
         self.name = None  # will be set from training loop. for printing penalty.
-        self.lr_scale = 0.5
 
         with torch.no_grad():
             # this is not orthogonal but should quickly become so.
