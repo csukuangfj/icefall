@@ -521,7 +521,7 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        self.scale_limiter = ScaleLimiter(max_scale=0.5)
+        self.scale_limiter = ScaleLimiter(max_scale=ScheduledFloat((0.0, 2.0), (10000.0, 0.5), default=2.0))
 
         self.norm = BiasNorm(embed_dim)
 
