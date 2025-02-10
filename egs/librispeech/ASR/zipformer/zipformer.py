@@ -35,6 +35,7 @@ from scaling import (
     BiasNorm,
     ChunkCausalDepthwiseConv1d,
     Dropout2,
+    DeltaDropout,
     FloatLike,
     ScheduledFloat,
     Whiten,
@@ -518,6 +519,9 @@ class Zipformer2EncoderLayer(nn.Module):
         self.feed_forward2 = FeedforwardModule(embed_dim, feedforward_dim, dropout)
 
 
+        # This is supposed to encourage the scale of the embeddings to get larger if it is too small.
+        self.dropout_ff2 = DeltaDropout(0.1, delta=0.01)
+
         self.conv_module = ConvolutionModule(
             embed_dim, cnn_module_kernel, causal=causal
         )
@@ -567,7 +571,7 @@ class Zipformer2EncoderLayer(nn.Module):
             src, chunk_size=chunk_size, src_key_padding_mask=src_key_padding_mask
         )
 
-        src = src + self.feed_forward2(src)
+        src = src + self.dropout_ff2(self.feed_forward2(src))
 
         src = self.bypass(src_orig, src)
 
