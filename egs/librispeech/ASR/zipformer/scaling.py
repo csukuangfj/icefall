@@ -1477,22 +1477,6 @@ class Dropout3(nn.Module):
         return ans
 
 
-# DeltaDropout does dropout but you supply a delta and it shrinks the embedding
-# element toward zero by at most delta.
-class DeltaDropout(nn.Module):
-    def __init__(self, p: FloatLike, delta: float):
-        super().__init__()
-        self.p = p
-        self.delta = delta
-
-    def forward(self, x: Tensor) -> Tensor:
-        p = float(self.p)
-        if not self.training or p == 0:
-            return _no_op(x)
-
-        rand = (torch.rand_like(x) < p) * x.abs().clamp_(max=self.delta) * -x.sgn()
-        return x + rand
-
 
 class SwooshLFunction(torch.autograd.Function):
     """

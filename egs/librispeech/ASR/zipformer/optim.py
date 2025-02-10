@@ -187,18 +187,19 @@ def scaling_step(group, p, state, grad):
             (p**2).mean(dim=list(range(1, p.ndim)), keepdim=True).sqrt()
         )
 
-    param_min_rms = group["param_min_rms"]
+    # would be p.ndim > 1 not p.ndim > 2 but one dim is for batch of tensors.
+    min_rms = group["weight_min_rms"] if p.ndim > 2 else group["bias_min_rms"]
 
     # scale the step size by param_rms.  This is the most important "scaling" part of
     # ScaledAdam
-    delta *= param_rms.clamp(min=param_min_rms)
+    delta *= param_rms.clamp(min=min_rms)
 
     if step % size_update_period == size_update_period - 1 and step > 0:
         # This block updates the size of parameter by adding a step ("delta") value in
         # the direction of either shrinking or growing it.
         beta2 = group["betas"][1]
         size_lr = group["lr"] * group["scalar_lr_scale"]
-        param_max_rms = group["param_max_rms"]
+        max_rms = group["weight_max_rms"] if p.ndim > 2 else group["bias_max_rms"]
         eps = group["eps"]
         batch_size = p.shape[0]
         # correct beta2 for the size update period: we will have
@@ -219,7 +220,7 @@ def scaling_step(group, p, state, grad):
             -size_lr * (bias_correction2**0.5) * scale_grads.sum(dim=0) / denom
         )
 
-        is_too_small = param_rms < param_min_rms
+        is_too_small = param_rms < min_rms
 
         # when the param gets too small, just don't shrink it any further.
         scale_step.masked_fill_(is_too_small, 0.0)
@@ -228,11 +229,11 @@ def scaling_step(group, p, state, grad):
         # either direction.
         scale_step.clamp_(min=-0.1, max=0.1)
 
-        # and ensure the parameter rms after update never exceeds param_max_rms.
+        # and ensure the parameter rms after update never exceeds max_rms.
         # We have to look at the trained model for parameters at or around the
-        # param_max_rms, because sometimes they can indicate a problem with the
+        # max_rms, because sometimes they can indicate a problem with the
         # topology or settings.
-        scale_step = torch.minimum(scale_step, (param_max_rms - param_rms) / param_rms)
+        scale_step = torch.minimum(scale_step, (max_rms - param_rms) / param_rms)
 
         delta.add_(p * scale_step)
 
@@ -287,12 +288,16 @@ class ScaledAdam(BatchedOptimizer):
                    as p * p_scale.exp(), where (p**2).mean().sqrt() == 1.0, scalar_lr_scale
                    would be a the scaling factor on the learning rate of p_scale.
               eps:  A general-purpose epsilon to prevent division by zero
-    param_min_rms: Minimum root-mean-square value of parameter tensor, for purposes of
-                   learning the scale on the parameters (we'll constrain the rms of each non-scalar
-                   parameter tensor to be >= this value)
-    param_max_rms: Maximum root-mean-square value of parameter tensor, for purposes of
-                   learning the scale on the parameters (we'll constrain the rms of each non-scalar
-                   parameter tensor to be <= this value)
+    weight_min_rms: Minimum root-mean-square value of weight tensors, for purposes of
+                   learning the scale on the parameters. Weight tensors are defined
+                   as anything with more than one element and ndim > 1.
+    weight_max_rms: Maximum root-mean-square value of weight tensor, for purposes of
+                   learning the scale on the parameters (we'll constrain the rms of each weight
+                   parameter tensor to be <= this value).
+     bias_min_rms: Minimum root-mean-square value of bias tensors, defined as anything with
+                   more than one element and exactly one tensor dimension i.e. ndim == 1.
+     bias_max_rms: Maximum root-mean-square value of bias tensors, defined as anything with
+                   more than one element and exactly one tensor dimension i.e. ndim == 1.
        scalar_max: Maximum absolute value for scalar parameters (applicable if your
                    model has any parameters with numel() == 1).
     size_update_period: The periodicity, in steps, with which we update the size (scale)
@@ -309,8 +314,10 @@ class ScaledAdam(BatchedOptimizer):
         betas=(0.9, 0.98),
         scalar_lr_scale=0.1,
         eps=1.0e-08,
-        param_min_rms=1.0e-05,
-        param_max_rms=3.0,
+        weight_min_rms=0.01,
+        weight_max_rms=1.0,
+        bias_min_rms=1.0e-05,
+        bias_max_rms=3.0,
         scalar_max=10.0,
         size_update_period=4,
         clipping_update_period=100,
@@ -322,8 +329,10 @@ class ScaledAdam(BatchedOptimizer):
             betas=betas,
             scalar_lr_scale=scalar_lr_scale,
             eps=eps,
-            param_min_rms=param_min_rms,
-            param_max_rms=param_max_rms,
+            weight_min_rms=weight_min_rms,
+            weight_max_rms=weight_max_rms,
+            bias_min_rms=bias_min_rms,
+            bias_max_rms=bias_max_rms,
             scalar_max=scalar_max,
             size_update_period=size_update_period,
             clipping_update_period=clipping_update_period,
