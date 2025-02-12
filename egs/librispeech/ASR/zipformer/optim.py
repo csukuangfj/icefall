@@ -220,10 +220,14 @@ def scaling_step(group, p, state, grad):
             -size_lr * (bias_correction2**0.5) * scale_grads.sum(dim=0) / denom
         )
 
-        is_too_small = param_rms < min_rms
+        not_too_small = param_rms > min_rms
 
-        # when the param gets too small, just don't shrink it any further.
-        scale_step.masked_fill_(is_too_small, 0.0)
+        # when the param gets too small, don't shrink it any further.
+        # that means we set it to zero if it was negative.
+        # -not_too_small.to(p.dtype) is 0 if it is too small, and -1 if it
+        # is not too small which will anyway be below the step.
+        scale_step = torch.maximum(scale_step, -not_too_small.to(p.dtype))
+
 
         # The following may help prevent instability: don't allow the scale step to be too large in
         # either direction.
