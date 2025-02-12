@@ -220,17 +220,13 @@ def scaling_step(group, p, state, grad):
             -size_lr * (bias_correction2**0.5) * scale_grads.sum(dim=0) / denom
         )
 
-        not_too_small = param_rms > min_rms
-
-        # when the param gets too small, don't shrink it any further.
-        # that means we set it to zero if it was negative.
-        # -not_too_small.to(p.dtype) is 0 if it is too small, and -1 if it
-        # is not too small which will anyway be below the step.
-        scale_step = torch.maximum(scale_step, -not_too_small.to(p.dtype))
-
+        # turn off the scale-step once param_rms is below min_rms, scale becomes
+        # 1.0 once we are twice param_min_rms.
+        scale_step_factor = ((param_rms / min_rms) - 1.).clamp_(min=0.0, max=1.0)
 
         # The following may help prevent instability: don't allow the scale step to be too large in
         # either direction.
+        # TODO: remove this.
         scale_step.clamp_(min=-0.1, max=0.1)
 
         # and ensure the parameter rms after update never exceeds max_rms.
@@ -244,7 +240,7 @@ def scaling_step(group, p, state, grad):
         # this is so that in effect we are learning the scale in log space,
         # so to represent it in p we have to exponentiate it.  it's to avoid
         # a downward bias in the scale that might otherwise happen.
-        delta.add_(p * (scale_step + 0.5 * scale_step ** 2))
+        delta.add_(p * (scale_step_factor * (scale_step + 0.5 * scale_step ** 2)))
 
     return delta
 
