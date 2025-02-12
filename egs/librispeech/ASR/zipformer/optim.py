@@ -233,14 +233,14 @@ def scaling_step(group, p, state, grad):
         # We have to look at the trained model for parameters at or around the
         # max_rms, because sometimes they can indicate a problem with the
         # topology or settings.
-        scale_step = torch.minimum(scale_step, (max_rms - param_rms) / param_rms)
+        scale_step = scale_step_factor * torch.minimum(scale_step, (max_rms - param_rms) / param_rms)
 
         # the "+ 0.5 * scale_step ** 2" can be thought of as taking the second
         # term in the Taylor expansion of exp(s) - 1, which is s + s^2 / 2!.
         # this is so that in effect we are learning the scale in log space,
         # so to represent it in p we have to exponentiate it.  it's to avoid
         # a downward bias in the scale that might otherwise happen.
-        delta.add_(p * (scale_step_factor * (scale_step + 0.5 * scale_step ** 2)))
+        delta.add_(p * (scale_step + 0.5 * scale_step ** 2))
 
     return delta
 
