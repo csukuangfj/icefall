@@ -357,6 +357,15 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--debug-interval",
+        type=int,
+        default=0,
+        help="""If positive, the interval at which we write various stats to the tensorboard, potentially useful for
+        finding parts of the network that are diverging or not well trained.
+        """
+    )
+
+    parser.add_argument(
         "--exp-dir",
         type=str,
         default="zipformer/exp",
@@ -1122,7 +1131,7 @@ def train_one_epoch(
             scaler.scale(loss).backward()
             scheduler.step_batch(params.batch_idx_train)
 
-            scaler.step(optimizer)
+            scaler.step(optimizer, summary_writer=tb_writer)
             scaler.update()
             optimizer.zero_grad()
         except Exception as e:

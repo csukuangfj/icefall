@@ -261,6 +261,42 @@ def momentum_step(group, p, state, grad):
     return stored_delta
 
 
+def debug_step(group, p, state, grad, param_names, summary_writer):
+    delta = momentum_step(group, p, state, grad)
+    debug_interval = group["debug_interval"]
+    step = state["step"] % debug_interval
+
+    if step % debug_interval != 0 or summary_writer is None:
+        return delta
+
+    debug_info = torch.zeros(p.shape[0], 6, device=p.device, dtype=torch.float)
+
+    is_scalar = (p.numel() == p.shape[0])
+    dims = list(range(1, p.ndim)) # e.g. dims to average.
+
+    def maybe_rms(x):
+        if is_scalar:
+            # the .mean() is just to get rid of those dims.
+            return x.mean(dim=dims)
+        else:
+            return (x ** 2).mean(dim=dims).sqrt()
+
+    debug_info[:, 0] = maybe_rms(p)
+    debug_info[:, 1] = maybe_rms(grad)
+    debug_info[:, 2] = maybe_rms(delta)
+    debug_info[:, 3] = (p * grad).sum(dim=dims)
+    debug_info[:, 4] = (p * delta).sum(dim=dims)
+    debug_info[:, 5] = (grad * delta).sum(dim=dims)
+    debug_info = debug_info.to('cpu')
+
+    assert len(param_names) == p.shape[0]
+    for name, info in param_names, debug_info.unbind(dim=0):
+        for i, legend in enumerate(['param_rms', 'grad_rms', 'delta_rms', 'param_grad', 'param_delta', 'grad_delta']):
+            summary_writer.add_scalar(f"debug/{legend}/{name}", step, info[i].item())
+
+    return delta
+
+
 
 class ScaledAdam(BatchedOptimizer):
     """
@@ -309,6 +345,7 @@ class ScaledAdam(BatchedOptimizer):
                    of the parameter tensor.  This is provided to save a little time
                    in the update.
      clipping_update_period: if clipping_scale is specified, this is the period
+      debug_interval: if >0, write some statistics to tensorboard every this-many steps.
     """
 
     def __init__(
@@ -326,6 +363,7 @@ class ScaledAdam(BatchedOptimizer):
         scalar_max=10.0,
         size_update_period=4,
         clipping_update_period=100,
+        debug_interval=0,
     ):
 
         defaults = dict(
@@ -341,6 +379,7 @@ class ScaledAdam(BatchedOptimizer):
             scalar_max=scalar_max,
             size_update_period=size_update_period,
             clipping_update_period=clipping_update_period,
+            debug_interval=debug_interval,
         )
 
         # If params only contains parameters or group of parameters,
@@ -463,7 +502,7 @@ class ScaledAdam(BatchedOptimizer):
         super(ScaledAdam, self).__setstate__(state)
 
     @torch.no_grad()
-    def step(self, closure=None):
+    def step(self, closure=None, summary_writer=None):
         """Performs a single optimization step.
 
         Arguments:
@@ -492,7 +531,7 @@ class ScaledAdam(BatchedOptimizer):
                 else:
                     clipping_scale = self._get_clipping_scale(group, batches)
 
-                for p, state, _ in batches:
+                for p, state, names in batches:
                     # Perform optimization step.
                     # grad is not going to be None, we handled that when creating the batches.
                     grad = p.grad
@@ -509,7 +548,7 @@ class ScaledAdam(BatchedOptimizer):
                         cur_step = 0
 
                     grad = (p.grad if clipping_scale == 1.0 else p.grad.mul_(clipping_scale))
-                    p += momentum_step(group, p.detach(), state, grad)
+                    p += debug_step(group, p.detach(), state, grad, names, summary_writer)
 
                     if p.numel() == p.shape[0]:  # scalar parameter
                         scalar_max = group["scalar_max"]
