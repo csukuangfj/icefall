@@ -233,7 +233,16 @@ def scaling_step(group, p, state, grad):
         # We have to look at the trained model for parameters at or around the
         # max_rms, because sometimes they can indicate a problem with the
         # topology or settings.
-        scale_step = scale_step_factor * torch.minimum(scale_step, (max_rms - param_rms) / param_rms)
+        scale_step = torch.minimum(scale_step, (max_rms - param_rms) / param_rms)
+
+
+        # (1 + lr**2) ** 0.5 ~ 1 + (0.5 lr**2) would be the factor by which the parameter rms
+        # increases on each step, assuming the gradient is orthogonal to the current
+        # parameter value.  we cancel this out by subtracting (0.5 * lr**2); we
+        # need to do this times size_update_period.
+        scale_step = scale_step - (0.5 * (group["lr"] ** 2) * size_update_period)
+
+        scale_step = scale_step_factor * scale_step
 
         # the "+ 0.5 * scale_step ** 2" can be thought of as taking the second
         # term in the Taylor expansion of exp(s) - 1, which is s + s^2 / 2!.
