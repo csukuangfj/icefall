@@ -275,7 +275,7 @@ def debug_step(group, p, state, grad, param_names, summary_writer):
     debug_interval = group["debug_interval"]
     step = state["step"] % debug_interval
 
-    if step % debug_interval != 0 or summary_writer is None:
+    if debug_interval == 0 or step % debug_interval != 0 or summary_writer is None:
         return delta
 
     debug_info = torch.zeros(p.shape[0], 6, device=p.device, dtype=torch.float)
@@ -306,6 +306,15 @@ def debug_step(group, p, state, grad, param_names, summary_writer):
     return delta
 
 
+
+def _load_state_dict_pre_hook(optim: ScaledAdam, state_dict: dict):
+    for optim_group, load_group in zip(optim.param_groups, state_dict['param_groups']):
+        for key in ['debug_interval']:
+            try:
+                optim_group[key] = load_group[key]
+                logging.info(f"Copied key {key}")
+            except KeyError:
+                logging.info(f"Could not copy key {key} from optim state-dict.")
 
 class ScaledAdam(BatchedOptimizer):
     """
@@ -399,6 +408,11 @@ class ScaledAdam(BatchedOptimizer):
         super(ScaledAdam, self).__init__(param_groups, defaults)
         assert len(self.param_groups) == len(parameters_names)
         self.parameters_names = parameters_names
+
+
+        self.register_load_state_dict_pre_hook(_load_state_dict_pre_hook)
+
+
 
     def _get_names_of_parameters(
         self, params_or_named_params

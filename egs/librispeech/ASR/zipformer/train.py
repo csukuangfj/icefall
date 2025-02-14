@@ -1353,6 +1353,7 @@ def run(rank, world_size, args):
         size_update_period=1, # for some reason, setting this to 1 (default is
                               # 4) seems to stop the embeddings from getting too
                               # small.
+        debug_interval=params.debug_interval,
     )
 
     scheduler = Eden(optimizer, params.lr_batches, params.lr_epochs,
