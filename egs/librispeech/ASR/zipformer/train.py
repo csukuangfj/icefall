@@ -1138,7 +1138,7 @@ def train_one_epoch(
             logging.info(f"Caught exception: {e}.")
             if params.debug_interval > 0:
                 logging.info("Writing debug info to tensorboard.")
-                scaler.write_debug_info(summary_writer=tb_writer)
+                optimizer.write_debug_info(summary_writer=tb_writer)
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
             raise

@@ -276,10 +276,9 @@ def debug_step(group, p, state, grad):
     debug_buffer_size = 256
     step = state["step"]
 
-    if debug_interval == 0 or step % debug_interval != 0 or summary_writer is None:
+    if debug_interval == 0 or step % debug_interval != 0:
         delta = momentum_step(group, p, state, grad)
         return delta
-
 
     dims = list(range(1, p.ndim)) # e.g. dims to average.
 
@@ -338,7 +337,6 @@ def _write_debug_info(group, state, param_names, summary_writer):
     cur_index = (cur_step // debug_interval) % debug_buffer_size
     # roll the data in the buffer so that cur_index goes to position zero.
     debug_info = torch.roll(debug_info, -cur_index, 0, 0)
-
 
     debug_info = debug_info.to('cpu')
 
