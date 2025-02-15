@@ -474,7 +474,7 @@ class BiasNorm(torch.nn.Module):
             return (x * scales)
 
         eps = limit_param_value(
-            self.eps, min=1.0, max=2.0, training=self.training)
+            self.eps, min=0.5, max=2.0, training=self.training)
 
         power = limit_param_value(
             self.power, min=0.25, max=2.0, training=self.training)
