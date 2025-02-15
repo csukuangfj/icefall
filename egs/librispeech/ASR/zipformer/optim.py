@@ -336,7 +336,7 @@ def _write_debug_info(group, state, param_names, summary_writer):
     # cur_index would be where the next debug_info would go in the buffer
     cur_index = (cur_step // debug_interval) % debug_buffer_size
     # roll the data in the buffer so that cur_index goes to position zero.
-    debug_info = torch.roll(debug_info, -cur_index, 0, 0)
+    debug_info = torch.roll(debug_info, -cur_index, 0)
 
     debug_info = debug_info.to('cpu')
 
