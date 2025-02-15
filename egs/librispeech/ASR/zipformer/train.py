@@ -1131,11 +1131,14 @@ def train_one_epoch(
             scaler.scale(loss).backward()
             scheduler.step_batch(params.batch_idx_train)
 
-            scaler.step(optimizer, summary_writer=tb_writer)
+            scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
         except Exception as e:
             logging.info(f"Caught exception: {e}.")
+            if params.debug_interval > 0:
+                logging.info("Writing debug info to tensorboard.")
+                scaler.write_debug_info(summary_writer=tb_writer)
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
             raise
