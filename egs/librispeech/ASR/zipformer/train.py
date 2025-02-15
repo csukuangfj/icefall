@@ -1092,6 +1092,9 @@ def train_one_epoch(
     saved_bad_model = False
 
     def save_bad_model(suffix: str = ""):
+        if params.debug_interval > 0:
+            logging.info("Writing debug info to tensorboard.")
+            optimizer.write_debug_info(summary_writer=tb_writer)
         save_checkpoint_impl(
             filename=params.exp_dir / f"bad-model{suffix}-{rank}.pt",
             model=model,
@@ -1136,9 +1139,6 @@ def train_one_epoch(
             optimizer.zero_grad()
         except Exception as e:
             logging.info(f"Caught exception: {e}.")
-            if params.debug_interval > 0:
-                logging.info("Writing debug info to tensorboard.")
-                optimizer.write_debug_info(summary_writer=tb_writer)
             save_bad_model()
             display_and_save_batch(batch, params=params, sp=sp)
             raise
