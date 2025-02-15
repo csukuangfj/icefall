@@ -240,7 +240,9 @@ def scaling_step(group, p, state, grad):
         # increases on each step, assuming the gradient is orthogonal to the current
         # parameter value.  we cancel this out by subtracting (0.5 * lr**2); we
         # need to do this times size_update_period.
-        scale_step = scale_step - (0.5 * (group["lr"] ** 2) * size_update_period)
+
+        CORRECTION_FACTOR = 0.4  # mathematically this should be 0.5
+        scale_step = scale_step - (CORRECTION_FACTOR * (group["lr"] ** 2) * size_update_period)
 
         scale_step = scale_step_factor * scale_step
 
