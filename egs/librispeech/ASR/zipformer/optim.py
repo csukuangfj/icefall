@@ -273,7 +273,7 @@ def momentum_step(group, p, state, grad):
 def debug_step(group, p, state, grad, param_names, summary_writer):
     delta = momentum_step(group, p, state, grad)
     debug_interval = group["debug_interval"]
-    step = state["step"] % debug_interval
+    step = state["step"]
 
     if debug_interval == 0 or step % debug_interval != 0 or summary_writer is None:
         return delta
@@ -299,15 +299,15 @@ def debug_step(group, p, state, grad, param_names, summary_writer):
     debug_info = debug_info.to('cpu')
 
     assert len(param_names) == p.shape[0]
-    for name, info in param_names, debug_info.unbind(dim=0):
+    for name, info in zip(param_names, debug_info.unbind(dim=0)):
         for i, legend in enumerate(['param_rms', 'grad_rms', 'delta_rms', 'param_grad', 'param_delta', 'grad_delta']):
-            summary_writer.add_scalar(f"debug/{legend}/{name}", step, info[i].item())
+            summary_writer.add_scalar(f"debug/{legend}/{name}", info[i].item(), step)
 
     return delta
 
 
 
-def _load_state_dict_pre_hook(optim: ScaledAdam, state_dict: dict):
+def _load_state_dict_pre_hook(optim: Optimizer, state_dict: dict):
     for optim_group, load_group in zip(optim.param_groups, state_dict['param_groups']):
         for key in ['debug_interval']:
             try:
