@@ -1289,7 +1289,7 @@ def run(rank, world_size, args):
 
     if args.tensorboard and rank == 0:
         tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard",
-                                  max_queue=3000)
+                                  max_queue=100000)
     else:
         tb_writer = None
 

@@ -320,7 +320,7 @@ def _write_debug_info(group, state, param_names, summary_writer):
     debug_interval = group["debug_interval"]
 
     try:
-        debug_info = state["debug_info"]
+        debug_info = state["debug_info_cpu"]
     except KeyError:
         return
 
@@ -626,10 +626,20 @@ class ScaledAdam(BatchedOptimizer):
         if summary_writer is None:
             return
         logging.info("Writing debug info to tensorboard.")
+
+        for group, group_params_names in zip(self.param_groups, self.parameters_names):
+            with self.batched_params(group["params"], group_params_names) as batches:
+                for _p, state, names in batches:
+                    try:
+                        state["debug_info_cpu"] = state["debug_info"].to(device="cpu", non_blocking=True)
+                    except:
+                        pass
+
         for group, group_params_names in zip(self.param_groups, self.parameters_names):
             with self.batched_params(group["params"], group_params_names) as batches:
                 for _p, state, names in batches:
                     _write_debug_info(group, state, names, summary_writer)
+                    del state["debug_info_cpu"]
 
     def _get_clipping_scale(
         self, group: dict, tuples: List[Tuple[Tensor, dict, List[str]]]
