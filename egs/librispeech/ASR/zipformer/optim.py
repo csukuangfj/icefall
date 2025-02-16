@@ -637,6 +637,7 @@ class ScaledAdam(BatchedOptimizer):
 
     @torch.no_grad()
     def write_debug_info(self, summary_writer):
+        logging.info("Writing debug info to tensorboard.")
         for group, group_params_names in zip(self.param_groups, self.parameters_names):
             with self.batched_params(group["params"], group_params_names) as batches:
                 for _p, state, names in batches:

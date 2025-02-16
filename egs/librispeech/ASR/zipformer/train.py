@@ -366,6 +366,15 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--dump-debug-interval",
+        type=int,
+        default=0,
+        help="""If positive, and if debug-interval > 0 the interval at which we dump debug statistics; they
+        are accumulated at batches with period debug_interval.  Should be at least 256 times --debug-interval.
+        """
+    )
+
+    parser.add_argument(
         "--exp-dir",
         type=str,
         default="zipformer/exp",
@@ -1093,7 +1102,6 @@ def train_one_epoch(
 
     def save_bad_model(suffix: str = ""):
         if params.debug_interval > 0:
-            logging.info("Writing debug info to tensorboard.")
             optimizer.write_debug_info(summary_writer=tb_writer)
         save_checkpoint_impl(
             filename=params.exp_dir / f"bad-model{suffix}-{rank}.pt",
@@ -1246,6 +1254,10 @@ def train_one_epoch(
                 valid_info.write_summary(
                     tb_writer, "train/valid_", params.batch_idx_train
                 )
+
+        if params.batch_idx_train > 0 and params.batch_idx_train % params.dump_debug_interval > 0:
+            optimizer.write_debug_info(summary_writer=tb_writer)
+
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
