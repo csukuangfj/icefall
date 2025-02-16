@@ -281,29 +281,21 @@ def debug_step(group, p, state, grad):
     debug_buffer_size = 256
     step = state["step"]
 
-    if debug_interval == 0 or step % debug_interval != 0:
-        delta = momentum_step(group, p, state, grad)
-        return delta
-
-    dims = list(range(1, p.ndim)) # e.g. dims to average.
-
-    try:
-        old_delta = state["delta"]
-        grad_old_delta = (grad * old_delta).sum(dim=dims)
-    except KeyError:
-        grad_old_delta = 0.0
-
     delta = momentum_step(group, p, state, grad)
+
+    if debug_interval == 0 or step % debug_interval != 0:
+        return delta
 
     try:
         debug_info = state["debug_info"]
     except KeyError:
-        debug_info = torch.zeros(debug_buffer_size, p.shape[0], 6,
+        debug_info = torch.zeros(debug_buffer_size, p.shape[0], 2,
                                  device=p.device, dtype=torch.float)
         state["debug_info"] = debug_info
 
     is_scalar = (p.numel() == p.shape[0])
 
+    dims = list(range(1, p.ndim)) # e.g. dims to average.
     def maybe_rms(x):
         if is_scalar:
             # the .mean() is just to get rid of those dims.
@@ -316,10 +308,6 @@ def debug_step(group, p, state, grad):
 
     debug_info[:, 0] = maybe_rms(p)
     debug_info[:, 1] = maybe_rms(grad)
-    debug_info[:, 2] = maybe_rms(delta)
-    debug_info[:, 3] = (p * grad).sum(dim=dims)
-    debug_info[:, 4] = (p * delta).sum(dim=dims)
-    debug_info[:, 5] = grad_old_delta
 
     return delta
 
@@ -336,7 +324,7 @@ def _write_debug_info(group, state, param_names, summary_writer):
     except KeyError:
         return
 
-    (debug_buffer_size, num_params, _six) = debug_info.shape
+    (debug_buffer_size, num_params, _two) = debug_info.shape
 
     # cur_index would be where the next debug_info would go in the buffer
     cur_index = (cur_step // debug_interval) % debug_buffer_size
@@ -347,16 +335,14 @@ def _write_debug_info(group, state, param_names, summary_writer):
 
     assert len(param_names) == num_params
 
-    for step in range(debug_buffer_size):
-        # this formula for real_step is rather approximate, it doesn't properly
-        # account for end effetcs, or missed steps in amp mode due to infinities.
-        real_step = debug_interval * (step - debug_buffer_size) + cur_step
+    arange = torch.arange(debug_buffer_size)
+    steps = debug_interval * (arange - debug_buffer_size) + cur_step
 
-        for name, info in zip(param_names, debug_info[step].unbind(dim=0)):
-            for i, legend in enumerate(['param_rms', 'grad_rms', 'delta_rms', 'param_grad', 'param_delta', 'grad_delta']):
-                summary_writer.add_scalar(f"debug/{legend}/{name}", info[i].item(), real_step)
-
-
+    for i, legend in enumerate(['param_rms', 'grad_rms']):
+        for name, info in zip(param_names, debug_info[..., i].unbind(dim=1)):
+            debug_str = f"debug/{legend}/{name}"
+            for step, value in zip(steps.tolist(), info.tolist()):
+                summary_writer.add_scalar(debug_str, value, step)
 
 
 
@@ -637,6 +623,8 @@ class ScaledAdam(BatchedOptimizer):
 
     @torch.no_grad()
     def write_debug_info(self, summary_writer):
+        if summary_writer is None:
+            return
         logging.info("Writing debug info to tensorboard.")
         for group, group_params_names in zip(self.param_groups, self.parameters_names):
             with self.batched_params(group["params"], group_params_names) as batches:
