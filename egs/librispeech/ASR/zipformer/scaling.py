@@ -511,7 +511,8 @@ def ScaledLinear(*args, initial_scale: float = 1.0, **kwargs) -> nn.Linear:
     with torch.no_grad():
         ans.weight[:] *= initial_scale
         if ans.bias is not None:
-            torch.nn.init.uniform_(ans.bias, -0.1 * initial_scale, 0.1 * initial_scale)
+            ans.bias[:] = 0.0
+            torch.nn.init.uniform_(ans.bias, -0.01 * initial_scale, 0.01 * initial_scale)
     return ans
 
 
