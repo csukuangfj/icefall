@@ -273,6 +273,99 @@ def momentum_step(group, p, state, grad):
 
 
 
+def debug_step(group, p, state, grad):
+    debug_interval = group["debug_interval"]
+    debug_buffer_size = 256
+    step = state["step"]
+
+    if debug_interval == 0 or step % debug_interval != 0:
+        delta = momentum_step(group, p, state, grad)
+        return delta
+
+    dims = list(range(1, p.ndim)) # e.g. dims to average.
+
+    try:
+        old_delta = state["delta"]
+        grad_old_delta = (grad * old_delta).sum(dim=dims)
+    except KeyError:
+        grad_old_delta = 0.0
+
+    delta = momentum_step(group, p, state, grad)
+
+    try:
+        debug_info = state["debug_info"]
+    except KeyError:
+        debug_info = torch.zeros(debug_buffer_size, p.shape[0], 6,
+                                 device=p.device, dtype=torch.float)
+        state["debug_info"] = debug_info
+
+    is_scalar = (p.numel() == p.shape[0])
+
+    def maybe_rms(x):
+        if is_scalar:
+            # the .mean() is just to get rid of those dims.
+            return x.mean(dim=dims)
+        else:
+            return (x ** 2).mean(dim=dims).sqrt()
+
+
+    debug_info = debug_info[(step // debug_interval) % debug_buffer_size]
+
+    debug_info[:, 0] = maybe_rms(p)
+    debug_info[:, 1] = maybe_rms(grad)
+    debug_info[:, 2] = maybe_rms(delta)
+    debug_info[:, 3] = (p * grad).sum(dim=dims)
+    debug_info[:, 4] = (p * delta).sum(dim=dims)
+    debug_info[:, 5] = grad_old_delta
+
+    return delta
+
+
+def _write_debug_info(group, state, param_names, summary_writer):
+    """
+    Writes to a Tensorboard, model-debugging information that was accumulated in debug_step.
+    """
+    cur_step = state["step"]
+    debug_interval = group["debug_interval"]
+
+    try:
+        debug_info = state["debug_info"]
+    except KeyError:
+        return
+
+    (debug_buffer_size, num_params, _six) = debug_info.shape
+
+    # cur_index would be where the next debug_info would go in the buffer
+    cur_index = (cur_step // debug_interval) % debug_buffer_size
+    # roll the data in the buffer so that cur_index goes to position zero.
+    debug_info = torch.roll(debug_info, -cur_index, 0)
+
+    debug_info = debug_info.to('cpu')
+
+    assert len(param_names) == num_params
+
+    for step in range(debug_buffer_size):
+        # this formula for real_step is rather approximate, it doesn't properly
+        # account for end effetcs, or missed steps in amp mode due to infinities.
+        real_step = debug_interval * (step - debug_buffer_size) + cur_step
+
+        for name, info in zip(param_names, debug_info[step].unbind(dim=0)):
+            for i, legend in enumerate(['param_rms', 'grad_rms', 'delta_rms', 'param_grad', 'param_delta', 'grad_delta']):
+                summary_writer.add_scalar(f"debug/{legend}/{name}", info[i].item(), real_step)
+
+
+
+
+
+def _load_state_dict_pre_hook(optim: Optimizer, state_dict: dict):
+    for optim_group, load_group in zip(optim.param_groups, state_dict['param_groups']):
+        for key in ['debug_interval']:
+            try:
+                optim_group[key] = load_group[key]
+                logging.info(f"Copied key {key}")
+            except KeyError:
+                logging.info(f"Could not copy key {key} from optim state-dict.")
+
 class ScaledAdam(BatchedOptimizer):
     """
      Implements 'Scaled Adam', a variant of Adam where we scale each parameter's update
@@ -320,6 +413,7 @@ class ScaledAdam(BatchedOptimizer):
                    of the parameter tensor.  This is provided to save a little time
                    in the update.
      clipping_update_period: if clipping_scale is specified, this is the period
+      debug_interval: if >0, write some statistics to tensorboard every this-many steps.
     """
 
     def __init__(
@@ -337,6 +431,7 @@ class ScaledAdam(BatchedOptimizer):
         scalar_max=10.0,
         size_update_period=4,
         clipping_update_period=100,
+        debug_interval=0,
     ):
 
         defaults = dict(
@@ -352,6 +447,7 @@ class ScaledAdam(BatchedOptimizer):
             scalar_max=scalar_max,
             size_update_period=size_update_period,
             clipping_update_period=clipping_update_period,
+            debug_interval=debug_interval,
         )
 
         # If params only contains parameters or group of parameters,
@@ -362,6 +458,11 @@ class ScaledAdam(BatchedOptimizer):
         super(ScaledAdam, self).__init__(param_groups, defaults)
         assert len(self.param_groups) == len(parameters_names)
         self.parameters_names = parameters_names
+
+
+        self.register_load_state_dict_pre_hook(_load_state_dict_pre_hook)
+
+
 
     def _get_names_of_parameters(
         self, params_or_named_params
@@ -503,7 +604,7 @@ class ScaledAdam(BatchedOptimizer):
                 else:
                     clipping_scale = self._get_clipping_scale(group, batches)
 
-                for p, state, _ in batches:
+                for p, state, _names in batches:
                     # Perform optimization step.
                     # grad is not going to be None, we handled that when creating the batches.
                     grad = p.grad
@@ -520,7 +621,7 @@ class ScaledAdam(BatchedOptimizer):
                         cur_step = 0
 
                     grad = (p.grad if clipping_scale == 1.0 else p.grad.mul_(clipping_scale))
-                    p += momentum_step(group, p.detach(), state, grad)
+                    p += debug_step(group, p.detach(), state, grad)
 
                     if p.numel() == p.shape[0]:  # scalar parameter
                         scalar_max = group["scalar_max"]
@@ -530,6 +631,13 @@ class ScaledAdam(BatchedOptimizer):
 
 
         return loss
+
+    @torch.no_grad()
+    def write_debug_info(self, summary_writer):
+        for group, group_params_names in zip(self.param_groups, self.parameters_names):
+            with self.batched_params(group["params"], group_params_names) as batches:
+                for _p, state, names in batches:
+                    _write_debug_info(group, state, names, summary_writer)
 
     def _get_clipping_scale(
         self, group: dict, tuples: List[Tuple[Tensor, dict, List[str]]]

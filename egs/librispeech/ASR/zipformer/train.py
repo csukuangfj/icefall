@@ -357,6 +357,15 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--debug-interval",
+        type=int,
+        default=0,
+        help="""If positive, the interval at which we write various stats to the tensorboard, potentially useful for
+        finding parts of the network that are diverging or not well trained.
+        """
+    )
+
+    parser.add_argument(
         "--exp-dir",
         type=str,
         default="zipformer/exp",
@@ -1083,6 +1092,9 @@ def train_one_epoch(
     saved_bad_model = False
 
     def save_bad_model(suffix: str = ""):
+        if params.debug_interval > 0:
+            logging.info("Writing debug info to tensorboard.")
+            optimizer.write_debug_info(summary_writer=tb_writer)
         save_checkpoint_impl(
             filename=params.exp_dir / f"bad-model{suffix}-{rank}.pt",
             model=model,
@@ -1344,6 +1356,7 @@ def run(rank, world_size, args):
         size_update_period=1, # for some reason, setting this to 1 (default is
                               # 4) seems to stop the embeddings from getting too
                               # small.
+        debug_interval=params.debug_interval,
     )
 
     scheduler = Eden(optimizer, params.lr_batches, params.lr_epochs,
