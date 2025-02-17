@@ -242,7 +242,7 @@ def scaling_step(group, p, state, grad):
         # parameter value.  we cancel this out by subtracting (0.5 * lr**2); we
         # need to do this times size_update_period.
 
-        CORRECTION_FACTOR = 0.25 if is_weight else 0.5
+        CORRECTION_FACTOR = 0.35 if is_weight else 0.5
         # mathematically this should be 0.5.   0.25 gives less-aggressive shrinkage.  give the more-aggressive shrinkage
         # of 0.5 for biases, as the biases getting relatively smaller will tend to prevent failure of the grad to propagate.
         scale_step = scale_step - (CORRECTION_FACTOR * (group["lr"] ** 2) * size_update_period)
