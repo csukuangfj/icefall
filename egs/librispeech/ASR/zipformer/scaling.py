@@ -394,7 +394,7 @@ class LogNormFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, scale= ctx.saved_tensors
+        x, scale = ctx.saved_tensors
 
         with torch.cuda.amp.autocast(enabled=False):
             x, scale = x.to(torch.float32), scale.to(torch.float32)
@@ -453,7 +453,7 @@ class BiasNorm(torch.nn.Module):
         super(BiasNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
-        self.scale = nn.Parameter(torch.tensor(1.0))
+        self.scale = nn.Parameter(torch.tensor(1.718281828))
 
         self.name = None
 
@@ -465,7 +465,7 @@ class BiasNorm(torch.nn.Module):
             return _log_norm(x, self.scale, self.channel_dim)
 
         scale = limit_param_value(
-            self.scale, min=0.5, max=2.0, training=self.training)
+            self.scale, min=0.5, max=2.5, training=self.training)
 
         ans = LogNormFunction.apply(
             x, scale, self.channel_dim,
