@@ -1255,7 +1255,7 @@ def train_one_epoch(
                     tb_writer, "train/valid_", params.batch_idx_train
                 )
 
-        if params.batch_idx_train > 0 and params.batch_idx_train % params.dump_debug_interval == 0:
+        if params.batch_idx_train > 0 and params.dump_debug_interval > 0 and params.batch_idx_train % params.dump_debug_interval == 0:
             optimizer.write_debug_info(summary_writer=tb_writer)
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
