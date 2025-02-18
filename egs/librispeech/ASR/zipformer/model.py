@@ -99,10 +99,10 @@ class AsrModel(nn.Module):
             self.joiner = joiner
 
             self.simple_am_proj = ScaledLinear(
-                encoder_dim, vocab_size, initial_scale=0.25
+                encoder_dim, vocab_size, initial_scale=0.1,
             )
             self.simple_lm_proj = ScaledLinear(
-                decoder_dim, vocab_size, initial_scale=0.25
+                decoder_dim, vocab_size, initial_scale=0.1,
             )
         else:
             assert decoder is None
@@ -113,7 +113,7 @@ class AsrModel(nn.Module):
             # Modules for CTC head
             self.ctc_output = nn.Sequential(
                 nn.Dropout(p=0.1),
-                nn.Linear(encoder_dim, vocab_size),
+                ScaledLinear(encoder_dim, vocab_size, initial_scale=0.1),
                 nn.LogSoftmax(dim=-1),
             )
 
@@ -123,8 +123,8 @@ class AsrModel(nn.Module):
         else:
             assert attention_decoder is None
 
-        self.reconstruction_proj = torch.nn.Linear(
-            encoder_dim, 4 * encoder_embed.in_channels)
+        self.reconstruction_proj = ScaledLinear(
+            encoder_dim, 4 * encoder_embed.in_channels, initial_scale=0.1)
         self.reconstruction_loss = torch.nn.SmoothL1Loss(reduction='none', beta=1.0)
 
     def forward_encoder(
