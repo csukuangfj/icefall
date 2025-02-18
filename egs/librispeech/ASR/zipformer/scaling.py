@@ -363,14 +363,14 @@ class MaxEigLimiterFunction(torch.autograd.Function):
         return x_grad + x_extra_grad.detach(), None, None, None, None
 
 
-def _log_norm(x: Tensor, scale: Tensor, channel_dim: int):
+
+def _exp_norm(x: Tensor, scale: Tensor, channel_dim: int):
     x_norm = torch.mean(x ** 2, dim=channel_dim, keepdim=True).sqrt()
-    scales = torch.log1p(x_norm) / x_norm
-    scales = torch.nan_to_num(scales, nan=1.0, posinf=1.0, neginf=1.0)
+    scales = (1. - (-x_norm).exp()) / x_norm   # torch.log1p(x_norm) / x_norm
     scales = scale * scales
     return (x * scales)
 
-class LogNormFunction(torch.autograd.Function):
+class ExpNormFunction(torch.autograd.Function):
     # This computes:
     #   scales = (torch.mean(x ** 2 + eps, keepdim=True)) ** -0.5 * log_scale.exp()
     #   return x * scales
@@ -388,7 +388,7 @@ class LogNormFunction(torch.autograd.Function):
             channel_dim = channel_dim + x.ndim
         ctx.channel_dim = channel_dim
         ctx.save_for_backward(x, scale)
-        return _log_norm(x, scale, channel_dim)
+        return _exp_norm(x, scale, channel_dim)
 
         return ans
 
@@ -403,7 +403,7 @@ class LogNormFunction(torch.autograd.Function):
             scale.requires_grad = True
 
             with torch.enable_grad():
-                ans = _log_norm(x, scale, ctx.channel_dim)
+                ans = _exp_norm(x, scale, ctx.channel_dim)
                 ans.backward(gradient=ans_grad.to(torch.float32))
 
         def c(x):
@@ -417,7 +417,7 @@ class LogNormFunction(torch.autograd.Function):
 
 class BiasNorm(torch.nn.Module):
     """
-    Comment not up-to-date.  This is LogNorm. Will change docs later if
+    Comment not up-to-date.  This is ExpNorm. Will change docs later if
     promising.
 
     This is intended to be a simpler, and hopefully cheaper, replacement for
@@ -462,12 +462,12 @@ class BiasNorm(torch.nn.Module):
         assert x.shape[self.channel_dim] == self.num_channels
 
         if torch.jit.is_scripting() or torch.jit.is_tracing():
-            return _log_norm(x, self.scale, self.channel_dim)
+            return _exp_norm(x, self.scale, self.channel_dim)
 
         scale = limit_param_value(
             self.scale, min=0.5, max=2.5, training=self.training)
 
-        ans = LogNormFunction.apply(
+        ans = ExpNormFunction.apply(
             x, scale, self.channel_dim,
         )
 
