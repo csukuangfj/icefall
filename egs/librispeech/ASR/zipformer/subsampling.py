@@ -254,7 +254,7 @@ class Conv2dSubsampling(nn.Module):
         self.out = ScaledLinear(self.out_width * layer3_channels, out_channels,
                                 initial_scale=2.0)
 
-        self.out_limiter = ScaleLimiter(max_scale=0.5)
+        self.out_limiter = ScaleLimiter(max_scale=4.0)
 
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
