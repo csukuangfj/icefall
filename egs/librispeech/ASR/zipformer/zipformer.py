@@ -1632,7 +1632,7 @@ class FeedforwardModule(nn.Module):
         super(FeedforwardModule, self).__init__()
         # try to get in the useful range of the activation function, i.e. not too small.
         self.in_proj = ScaledLinear(embed_dim, feedforward_dim,
-                                    initial_scale=3.0)
+                                    initial_scale=5.0)
 
         # shared_dim=0 means we share the dropout mask along the time axis
         self.out_proj = ActivationDropoutAndLinear(
