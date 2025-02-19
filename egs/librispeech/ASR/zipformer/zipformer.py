@@ -1634,7 +1634,7 @@ class FeedforwardModule(nn.Module):
         self.out_proj = ActivationDropoutAndLinear(
             feedforward_dim,
             embed_dim,
-            activation="SwooshL",
+            activation="DigitalSwooshL",
             dropout_p=dropout,
             dropout_shared_dim=0,
             bias=True,
