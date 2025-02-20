@@ -1651,16 +1651,18 @@ def digital_swooshl_forward(x):
     # from wolfram alpha, comparing with swooshl:
     #plot[ .25 * (log(1 + exp(4*x-4)) - .08*(4*x) - .035) ],[ -.08 * (x- -.06) +.04 * max(x- -.06, 0) +.15 * max(x-.5, 0) +.15 * max(x-.7, 0) +.25 * max(x-1, 0) +.25*max(x-1.2,0) ]for x=-1 to 2,
 
-    x6 = x - -0.06
-    return -0.08 * x6 + 0.04 * x6.relu() + 0.15 * (x - 0.5).relu() + 0.15 * (x - 0.7).relu() + 0.25 * (x - 1.0).relu() + 0.25 * (x - 1.2).relu() + 0.16 * (x - 1.8).relu()
+    # the couple lines below are to shift the function so that the left-most discontinuity is at
+    # x=0.
+    _x = x + -0.06
+    return -0.08 * x + 0.04 * x.relu() + 0.15 * (_x - 0.5).relu() + 0.15 * (_x - 0.7).relu() + 0.25 * (_x - 1.0).relu() + 0.25 * (_x - 1.2).relu() + 0.16 * (_x - 1.8).relu()
 
 
 def digital_swooshl_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        x6 = x - -0.06
-        y = -0.08 * x6 + 0.04 * x6.relu() + 0.15 * (x - 0.5).relu() + 0.15 * (x - 0.7).relu() + 0.25 * (x - 1.0).relu() + 0.25 * (x - 1.2).relu() + 0.16 * (x - 1.8).relu()
+        _x = x + -0.06
+        y = -0.08 * x + 0.04 * x.relu() + 0.15 * (_x - 0.5).relu() + 0.15 * (_x - 0.7).relu() + 0.25 * (_x - 1.0).relu() + 0.25 * (_x - 1.2).relu() + 0.16 * (_x - 1.8).relu()
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
