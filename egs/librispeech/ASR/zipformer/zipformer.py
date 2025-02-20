@@ -1874,7 +1874,7 @@ class ConvolutionModule(nn.Module):
         self.out_proj = ActivationDropoutAndLinear(
             bottleneck_dim,
             channels,
-            activation="SwooshR",
+            activation="DigitalSwooshL",
             dropout_p=0.0,
             initial_scale=0.05,
         )
