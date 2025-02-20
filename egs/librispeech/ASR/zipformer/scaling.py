@@ -1652,12 +1652,13 @@ def digital_swooshl_forward_and_deriv(x):
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
-class DigitalSwooshLFunction(torch.nn.Module):
+class DigitalSwooshLFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor):
         ctx.save_for_backward(x)
         return digital_swooshl_forward(x)
 
+    @staticmethod
     def backward(ctx, y_grad: Tensor):
         # this could be optimized, we could compute the derivative directly rather than use backward().
         x, = ctx.saved_tensors
