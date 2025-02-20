@@ -1632,6 +1632,27 @@ def SwooshRForward(x: Tensor):
     return log_sum - 0.08 * x - 0.313261687
 
 
+
+def digital_swooshl_forward(x):
+    # from wolfram alpha, comparing with swooshl:
+    #plot[ .25 * (log(1 + exp(4*x-4)) - .08*(4*x) - .035) ],[ -.08 * (x- -.06) +.04 * max(x- -.06, 0) +.15 * max(x-.5, 0) +.15 * max(x-.7, 0) +.25 * max(x-1, 0) +.25*max(x-1.2,0) ]for x=-1 to 2,
+
+    # the couple lines below are to shift the function so that the left-most discontinuity is at
+    # x=0.
+    _x = x + -0.06
+    return -0.08 * x + 0.04 * x.relu() + 0.15 * (_x - 0.5).relu() + 0.15 * (_x - 0.7).relu() + 0.25 * (_x - 1.0).relu() + 0.25 * (_x - 1.2).relu() + 0.16 * (_x - 1.8).relu()
+
+
+def digital_swooshl_forward_and_deriv(x):
+    with torch.enable_grad():
+        x = x.detach()
+        x.requires_grad = True
+        _x = x + -0.06
+        y = -0.08 * x + 0.04 * x.relu() + 0.15 * (_x - 0.5).relu() + 0.15 * (_x - 0.7).relu() + 0.25 * (_x - 1.0).relu() + 0.25 * (_x - 1.2).relu() + 0.16 * (_x - 1.8).relu()
+        y.backward(gradient=torch.ones_like(y))
+        return y, x.grad
+
+
 class ActivationDropoutAndLinearFunction(torch.autograd.Function):
     @staticmethod
     @custom_fwd
@@ -1662,6 +1683,7 @@ class ActivationDropoutAndLinearFunction(torch.autograd.Function):
         forward_activation_dict = {
             "SwooshL": k2.swoosh_l_forward,
             "SwooshR": k2.swoosh_r_forward,
+            "DigitalSwooshL": digital_swooshl_forward,
         }
         # it will raise a KeyError if this fails.  This will be an error.  We let it
         # propagate to the user.
@@ -1681,6 +1703,7 @@ class ActivationDropoutAndLinearFunction(torch.autograd.Function):
         forward_and_deriv_activation_dict = {
             "SwooshL": k2.swoosh_l_forward_and_deriv,
             "SwooshR": k2.swoosh_r_forward_and_deriv,
+            "DigitalSwooshL": digital_swooshl_forward_and_deriv,
         }
         # the following lines a KeyError if the activation is unrecognized.
         # This will be an error.  We let it propagate to the user.
@@ -1766,6 +1789,8 @@ class ActivationDropoutAndLinear(torch.nn.Module):
                 x = SwooshLForward(x)
             elif self.activation == "SwooshR":
                 x = SwooshRForward(x)
+            elif self.activation == "DigitalSwooshL":
+                x = digital_swooshl_forward(x)
             else:
                 assert False, self.activation
             return torch.nn.functional.linear(x, self.weight, self.bias)
