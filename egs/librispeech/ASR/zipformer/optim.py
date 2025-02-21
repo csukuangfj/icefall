@@ -316,10 +316,9 @@ def _write_debug_info(group, state, param_names, summary_writer):
     """
     Writes to a Tensorboard, model-debugging information that was accumulated in debug_step.
     """
-    cur_step = state["step"]
     debug_interval = group["debug_interval"]
-
     try:
+        cur_step = state["step"]
         debug_info = state["debug_info_cpu"]
     except KeyError:
         return
