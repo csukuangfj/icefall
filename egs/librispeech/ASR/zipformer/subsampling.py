@@ -32,6 +32,7 @@ from scaling import (
     ScaleGrad,
     ScheduledFloat,
     SwooshL,
+    DigitalSwoosh,
     SwooshR,
     Whiten,
 )
@@ -69,7 +70,7 @@ class ConvNeXt(nn.Module):
             in_channels=channels, out_channels=hidden_channels, kernel_size=1
         )
 
-        self.activation = SwooshL()
+        self.activation = DigitalSwoosh()
         self.pointwise_conv2 = ScaledConv2d(
             in_channels=hidden_channels,
             out_channels=channels,
@@ -225,7 +226,7 @@ class Conv2dSubsampling(nn.Module):
                 padding=(0, 1),  # (time, freq)
             ),
             ScaleGrad(0.2),
-            SwooshR(),
+            DigitalSwoosh(),
             nn.Conv2d(
                 in_channels=layer1_channels,
                 out_channels=layer2_channels,
@@ -233,14 +234,14 @@ class Conv2dSubsampling(nn.Module):
                 stride=2,
                 padding=0,
             ),
-            SwooshR(),
+            DigitalSwoosh(),
             nn.Conv2d(
                 in_channels=layer2_channels,
                 out_channels=layer3_channels,
                 kernel_size=3,
                 stride=(1, 2),  # (time, freq)
             ),
-            SwooshR(),
+            DigitalSwoosh(),
         )
 
         # just one convnext layer
