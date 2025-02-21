@@ -363,7 +363,14 @@ class MaxEigLimiterFunction(torch.autograd.Function):
         return x_grad + x_extra_grad.detach(), None, None, None, None
 
 
-class BiasNormFunction(torch.autograd.Function):
+
+def _exp_norm(x: Tensor, scale: Tensor, channel_dim: int):
+    x_norm = torch.mean(x ** 2, dim=channel_dim, keepdim=True).sqrt()
+    scales = (1. - (-x_norm).exp()) / x_norm   # torch.log1p(x_norm) / x_norm
+    scales = scale * scales
+    return (x * scales)
+
+class ExpNormFunction(torch.autograd.Function):
     # This computes:
     #   scales = (torch.mean(x ** 2 + eps, keepdim=True)) ** -0.5 * log_scale.exp()
     #   return x * scales
@@ -374,41 +381,29 @@ class BiasNormFunction(torch.autograd.Function):
     def forward(
         ctx,
         x: Tensor,
-        eps: Tensor,
-        power: Tensor,
         scale: Tensor,
         channel_dim: int,
     ) -> Tensor:
         if channel_dim < 0:
             channel_dim = channel_dim + x.ndim
         ctx.channel_dim = channel_dim
+        ctx.save_for_backward(x, scale)
+        return _exp_norm(x, scale, channel_dim)
 
-        x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-        scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
-        ans = x * scales
-        ctx.save_for_backward(
-            x.detach(),
-            eps.detach(),
-            power.detach(),
-            scale.detach(),
-        )
         return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tensor:
-        x, eps, power, scale = ctx.saved_tensors
+        x, scale = ctx.saved_tensors
+
         with torch.cuda.amp.autocast(enabled=False):
-            x, power, eps, scale = x.to(torch.float32), power.to(torch.float32), eps.to(torch.float32), scale.to(torch.float32)
-            x, power, eps, scale = x.detach(), power.detach(), eps.detach(), scale.detach()
+            x, scale = x.to(torch.float32), scale.to(torch.float32)
+            x, scale = x.detach(), scale.detach()
             x.requires_grad = True
-            eps.requires_grad = True
-            power.requires_grad = True
             scale.requires_grad = True
 
             with torch.enable_grad():
-                x_sq = torch.mean(x ** 2, dim=ctx.channel_dim, keepdim=True)
-                scales = scale * (x_sq ** power + eps) ** (-0.5 / power)
-                ans = x * scales
+                ans = _exp_norm(x, scale, ctx.channel_dim)
                 ans.backward(gradient=ans_grad.to(torch.float32))
 
         def c(x):
@@ -416,11 +411,15 @@ class BiasNormFunction(torch.autograd.Function):
             # in autocast mode.
             return x.clamp_(min=-30000.0, max=30000.0)
 
-        return x.grad, c(eps.grad), c(power.grad), c(scale.grad), None
+        return x.grad, c(scale.grad), None
+
 
 
 class BiasNorm(torch.nn.Module):
     """
+    Comment not up-to-date.  This is ExpNorm. Will change docs later if
+    promising.
+
     This is intended to be a simpler, and hopefully cheaper, replacement for
     LayerNorm.  The observation this is based on, is that Transformer-type
     networks, especially with pre-norm, sometimes seem to set one of the
@@ -446,7 +445,6 @@ class BiasNorm(torch.nn.Module):
       log_scale_min: FloatLike, minimum allowed value of log_scale
       log_scale_max: FloatLike, maximum allowed value of log_scale
     """
-
     def __init__(
         self,
         num_channels: int,
@@ -455,9 +453,7 @@ class BiasNorm(torch.nn.Module):
         super(BiasNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
-        self.scale = nn.Parameter(torch.tensor(2.0))
-        self.eps = nn.Parameter(torch.tensor(1.0))
-        self.power = nn.Parameter(torch.tensor(1.0))
+        self.scale = nn.Parameter(torch.tensor(1.718281828))
 
         self.name = None
 
@@ -466,31 +462,21 @@ class BiasNorm(torch.nn.Module):
         assert x.shape[self.channel_dim] == self.num_channels
 
         if torch.jit.is_scripting() or torch.jit.is_tracing():
-            channel_dim = self.channel_dim
-            if channel_dim < 0:
-                channel_dim += x.ndim
-            x_sq = torch.mean(x ** 2, dim=channel_dim, keepdim=True)
-            scales = self.scale * (x_sq ** self.power + self.eps) ** (-0.5 / self.power)
-            return (x * scales)
-
-        eps = limit_param_value(
-            self.eps, min=0.5, max=2.0, training=self.training)
-
-        power = limit_param_value(
-            self.power, min=0.25, max=2.0, training=self.training)
+            return _exp_norm(x, self.scale, self.channel_dim)
 
         scale = limit_param_value(
-            self.scale, min=0.5, max=4.0, training=self.training)
+            self.scale, min=0.5, max=2.5, training=self.training)
+
+        ans = ExpNormFunction.apply(
+            x, scale, self.channel_dim,
+        )
 
         if random.random() < 0.002:
             x_rms = (x ** 2).mean().sqrt()
-            logging.info(f"name={self.name}: x_rms={x_rms}, power={power.item()}, eps={eps.item()}, eps**(1/power)={(eps ** (1/power))}, scale={scale.item()}, (eps**(0.5/power))/x_rms={(eps**(0.5/power))/x_rms}")
+            ans_rms = (ans ** 2).mean().sqrt()
+            logging.info(f"name={self.name}: x_rms={x_rms}, ans_rms={ans_rms}, scale={self.scale.item()}")
 
-        return BiasNormFunction.apply(
-            x, eps, power, scale, self.channel_dim,
-        )
-
-
+        return ans
 
 def ScaledLinear(*args, initial_scale: float = 1.0, **kwargs) -> nn.Linear:
     """
@@ -1660,6 +1646,28 @@ def digital_swoosh_forward_and_deriv(x):
         y = .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
+
+class DigitalSwooshFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: Tensor):
+        ctx.save_for_backward(x)
+        return digital_swoosh_forward(x)
+
+    @staticmethod
+    def backward(ctx, y_grad: Tensor):
+        # this could be optimized, we could compute the derivative directly rather than use backward().
+        x, = ctx.saved_tensors
+        y, function_deriv = digital_swoosh_forward_and_deriv(x)
+        return y_grad * function_deriv
+
+class DigitalSwoosh(torch.nn.Module):
+    def forward(self, x: Tensor) -> Tensor:
+        """Return Digital Swoosh-L activation."""
+        if torch.jit.is_scripting() or torch.jit.is_tracing():
+            return digital_swoosh_forward(x)
+        return DigitalSwooshFunction.apply(x)
+
+
 
 
 class ActivationDropoutAndLinearFunction(torch.autograd.Function):

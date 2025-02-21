@@ -71,6 +71,7 @@ class ConvNeXt(nn.Module):
         )
 
         self.activation = DigitalSwoosh()
+
         self.pointwise_conv2 = ScaledConv2d(
             in_channels=hidden_channels,
             out_channels=channels,
@@ -253,9 +254,9 @@ class Conv2dSubsampling(nn.Module):
 
         # scale it up a bit, else the output is quite small.
         self.out = ScaledLinear(self.out_width * layer3_channels, out_channels,
-                                initial_scale=2.0)
+                                initial_scale=4.0)
 
-        self.out_limiter = ScaleLimiter(max_scale=0.5)
+        self.out_limiter = ScaleLimiter(max_scale=4.0)
 
         # use a larger than normal grad_scale on this whitening module; there is
         # only one such module, so there is not a concern about adding together
