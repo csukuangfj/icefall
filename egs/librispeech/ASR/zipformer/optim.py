@@ -411,7 +411,7 @@ class ScaledAdam(BatchedOptimizer):
         lr=3e-02,
         clipping_scale=None,
         betas=(0.9, 0.98),
-        scalar_lr_scale=0.025,
+        scalar_lr_scale=0.1,
         eps=1.0e-08,
         weight_min_rms=0.005,
         weight_max_rms=1.0,
