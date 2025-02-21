@@ -31,7 +31,6 @@ from scaling import (
     OrthogonalLinear,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ActivationDropoutAndLinear,
-    ScaleLimiter,
     BiasNorm,
     ChunkCausalDepthwiseConv1d,
     Dropout2,
@@ -521,8 +520,6 @@ class Zipformer2EncoderLayer(nn.Module):
             embed_dim, cnn_module_kernel, causal=causal
         )
 
-        self.scale_limiter = ScaleLimiter(max_scale=ScheduledFloat((0.0, 2.0), (10000.0, 0.5), default=2.0))
-
         self.norm = BiasNorm(embed_dim)
 
 
@@ -570,8 +567,6 @@ class Zipformer2EncoderLayer(nn.Module):
         src = src + self.feed_forward2(src)
 
         src = self.bypass(src_orig, src)
-
-        src = self.scale_limiter(src)
 
         return self.norm(src)
 
@@ -717,7 +712,6 @@ class Zipformer2Encoder(nn.Module):
         num_layers: int,
         pos_dim: int,
         dropout: float,
-        bypass_noise: FloatLike = ScheduledFloat((0.0, 0.0), (4000.0, 0.2), (8000.0, 0.0)),
     ) -> None:
         super().__init__()
         self.encoder_pos = CompactRelPositionalEncoding(
@@ -728,7 +722,14 @@ class Zipformer2Encoder(nn.Module):
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
         )
         self.num_layers = num_layers
-        self.bypass_noise = copy.deepcopy(bypass_noise)
+
+        self.whiten = Whiten(
+            num_groups=1,
+            whitening_limit=_whitening_schedule(3.0),
+            prob=(0.025, 0.25),
+            grad_scale=0.025,
+        )
+
 
     def forward(
         self,
@@ -759,8 +760,6 @@ class Zipformer2Encoder(nn.Module):
         if num_channels > layer_dim:
             src, bypass = src[..., :layer_dim], src[..., layer_dim:]
 
-            if self.training and not torch.jit.is_scripting() and not torch.jit.is_tracing():
-                bypass = self._add_noise_to_bypass(bypass)
 
         for i, mod in enumerate(self.layers):
             src = mod(
@@ -773,29 +772,12 @@ class Zipformer2Encoder(nn.Module):
             # randomize_factor can be viewed as a simple version of an
             # importance-sampling factor.
 
+        src = self.whiten(src)
+
         if num_channels > layer_dim:
             src = torch.cat((src, bypass), dim=-1)
 
         return src
-
-    def _add_noise_to_bypass(self, x: Tensor):
-        bypass_scale = float(self.bypass_noise)
-        # a simpler way to set the noise scale would be to use
-        # bypass_scale * (x ** 2).mean().sqrt().  Using
-        # 0.5 * ((x ** 2).mean() + 1.0) instead gives the same answer when the rms
-        # is 1.0, and a larger answer elsewhere, so it encourages the rms of
-        # x to be about 1.0.  Using .mean(dim=-1, keepdim=True) instead of .mean(), i.e. per-frame
-        # magnitude, helps to keep the gradients more concentrated which, in fp16
-        # training, should reduce certain biases caused by roundoff which otherwise
-        # tend to lead the embeddings to get smaller in scale.
-        noise_scale = (0.5 * bypass_scale) * ((x ** 2).mean(dim=-1, keepdim=True) + 1.0)
-
-        if random.random() < 0.001:
-            logging.info(f"name={self.name}, x_rms={(x**2).mean().sqrt().item()}, bypass_scale={bypass_scale}, noise_rms={noise_scale.mean()}")
-
-
-        return x + torch.randn_like(x) * noise_scale
-
 
     def streaming_forward(
         self,
