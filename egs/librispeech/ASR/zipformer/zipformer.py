@@ -1633,7 +1633,7 @@ class FeedforwardModule(nn.Module):
         self.out_proj = ActivationDropoutAndLinear(
             feedforward_dim,
             embed_dim,
-            activation="DigitalSwooshL",
+            activation="DigitalSwoosh",
             dropout_p=dropout,
             dropout_shared_dim=0,
             bias=True,
@@ -1649,7 +1649,7 @@ class FeedforwardModule(nn.Module):
 
     def forward(self, x: Tensor):
         x = self.in_proj(x)
-        # out_proj contains SwooshL activation, then dropout, then linear.
+        # out_proj contains DigitalSwoosh activation, then dropout, then linear.
         x = self.out_proj(x)
         x = self.out_whiten(x)
         return x
