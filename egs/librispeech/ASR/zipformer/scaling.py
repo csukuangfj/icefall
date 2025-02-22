@@ -1636,14 +1636,14 @@ def SwooshRForward(x: Tensor):
 def digital_swoosh_forward(x):
     # from wolfram alpha, comparing with swoosh:
     #plot[ .25 * (log(1 + exp(4*x-1.4)) - .08*(4*x) - .2) ], [.02*x + .15*max(x,0) + .2*max(x-.2, 0) + .25*max(x-.4, 0) + .25*max(x-.7, 0) + .1*max(-0.4-x, 0) ] for x=-2 to 2
-    return 1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
+    return -1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
 
 
 def digital_swoosh_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        y = 1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
+        y = -1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
