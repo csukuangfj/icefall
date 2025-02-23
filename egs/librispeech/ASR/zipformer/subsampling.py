@@ -49,14 +49,10 @@ class ConvNeXt(nn.Module):
         channels: int,
         hidden_ratio: int = 3,
         kernel_size: Tuple[int, int] = (7, 7),
-        layerdrop_rate: FloatLike = None,
     ):
         super().__init__()
         self.padding = ((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)
         hidden_channels = channels * hidden_ratio
-        if layerdrop_rate is None:
-            layerdrop_rate = ScheduledFloat((0.0, 0.2), (20000.0, 0.015))
-        self.layerdrop_rate = layerdrop_rate
 
         self.depthwise_conv = nn.Conv2d(
             in_channels=channels,
@@ -72,39 +68,15 @@ class ConvNeXt(nn.Module):
 
         self.activation = DigitalSwoosh()
 
-        self.pointwise_conv2 = ScaledConv2d(
+        self.pointwise_conv2 = nn.Conv2d(
             in_channels=hidden_channels,
             out_channels=channels,
             kernel_size=1,
-            initial_scale=0.01,
         )
 
-        self.out_whiten = Whiten(
-            num_groups=1,
-            whitening_limit=5.0,
-            prob=(0.025, 0.25),
-            grad_scale=0.01,
-        )
 
-    def forward(self, x: Tensor) -> Tensor:
-        if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
-            return self.forward_internal(x)
-        layerdrop_rate = float(self.layerdrop_rate)
-
-        if layerdrop_rate != 0.0:
-            batch_size = x.shape[0]
-            mask = (
-                torch.rand((batch_size, 1, 1, 1), dtype=x.dtype, device=x.device)
-                > layerdrop_rate
-            )
-        else:
-            mask = None
-        # turns out this caching idea does not work with --world-size > 1
-        # return caching_eval(self.forward_internal, x, mask)
-        return self.forward_internal(x, mask)
-
-    def forward_internal(
-        self, x: Tensor, layer_skip_mask: Optional[Tensor] = None
+    def forward(
+        self, x: Tensor,
     ) -> Tensor:
         """
         x layout: (N, C, H, W), i.e. (batch_size, num_channels, num_frames, num_freqs)
@@ -117,15 +89,7 @@ class ConvNeXt(nn.Module):
         x = self.activation(x)
         x = self.pointwise_conv2(x)
 
-        if layer_skip_mask is not None:
-            x = x * layer_skip_mask
-
         x = bypass + x
-
-        if x.requires_grad:
-            x = x.transpose(1, 3)  # (N, W, H, C); need channel dim to be last
-            x = self.out_whiten(x)
-            x = x.transpose(1, 3)  # (N, C, H, W)
 
         return x
 
