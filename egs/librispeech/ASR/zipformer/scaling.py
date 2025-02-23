@@ -1634,18 +1634,18 @@ def SwooshRForward(x: Tensor):
 
 
 def digital_swoosh_forward(x):
-    # self-similar digital swoosh:
+    # re-tuned self-similar digital swoosh:
     # (i.e the zoom-in near x=0 is very similar to the far-zoomed-out version)
     # type this into wolfram alpha to see the graph vs. the log-add function:
-    #plot[ .25 * (log(1 + exp(4*x-2.2)) - .08*(4*x) - .08) ], [-1e-04 -.01*x + .1*max(x,0) + .065*max(-.25-x,0) + .15*max(x-.25,0) + .25*max(x-.5,0) + .2*max(x-.75,0) + .2*max(x-1.,0)] for x = -2 to 2
-    return -1.0e-04 + .01 * x + .1 * x.relu() + .065*(-.25-x).relu() + .15 * (x-.25).relu() + .25 * (x-.5).relu() + .2*(x-.75).relu() + .2 * (x-1).relu()
+    #plot[ .25 * (log(1 + exp(4*x-2.2)) - .08*(4*x) - .08) ], [-1e-04 -.01*x + .075*max(x,0) + .07*max(-.25-x,0) +  .05*max(x-.15,0) +  .2*max(x-.3,0) + .25*max(x-.6,0) + .3*max(x-.9,0)] for x = -2 to 2
+    return -1.0e-04 + .01 * x + .075 * x.relu() + .07*(-.25-x).relu() + .05 * (x-.15).relu() + .2 * (x-.3).relu() + .25*(x-.6).relu() + .3 * (x-.9).relu()
 
 
 def digital_swoosh_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        y = -1.0e-04 + .01 * x + .1 * x.relu() + .065*(-.25-x).relu() + .15 * (x-.25).relu() + .25 * (x-.5).relu() + .2*(x-.75).relu() + .2 * (x-1).relu()
+        y = -1.0e-04 + .01 * x + .075 * x.relu() + .07*(-.25-x).relu() + .05 * (x-.15).relu() + .2 * (x-.3).relu() + .25*(x-.6).relu() + .3 * (x-.9).relu()
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
