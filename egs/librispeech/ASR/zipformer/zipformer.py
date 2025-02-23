@@ -30,6 +30,7 @@ from scaling import (
     OrthogonalLinearSpecial,
     OrthogonalLinear,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
+    ScaleLimiter,
     ActivationDropoutAndLinear,
     BiasNorm,
     ChunkCausalDepthwiseConv1d,
@@ -520,6 +521,8 @@ class Zipformer2EncoderLayer(nn.Module):
         self.conv_module1, self.conv_module2 = [ ConvolutionModule(embed_dim, cnn_module_kernel, causal=causal)
                                                  for _ in range(2) ]
 
+        self.scale_limiter = ScaleLimiter(max_scale=2.0)
+
         self.norm = BiasNorm(embed_dim)
 
 
@@ -571,6 +574,8 @@ class Zipformer2EncoderLayer(nn.Module):
         src = src + self.feed_forward3(src)
 
         src = self.bypass(src_orig, src)
+
+        src = self.scale_limiter(src)
 
         return self.norm(src)
 
