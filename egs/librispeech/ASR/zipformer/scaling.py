@@ -1636,16 +1636,38 @@ def SwooshRForward(x: Tensor):
 def digital_swoosh_forward(x):
     # from wolfram alpha, comparing with swoosh:
     #plot[ .25 * (log(1 + exp(4*x-1.4)) - .08*(4*x) - .2) ], [.02*x + .15*max(x,0) + .2*max(x-.2, 0) + .25*max(x-.4, 0) + .25*max(x-.7, 0) + .1*max(-0.4-x, 0) ] for x=-2 to 2
-    return .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
+    return -1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
 
 
 def digital_swoosh_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        y = .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
+        y = -1.0e-04 + .02 * x + .15 * x.relu() + .2 * (x-.2).relu() + .25 * (x-.4).relu() + .25 * (x-.7).relu() + .1 * (-0.4-x).relu()
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
+
+class DigitalSwooshFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: Tensor):
+        ctx.save_for_backward(x)
+        return digital_swoosh_forward(x)
+
+    @staticmethod
+    def backward(ctx, y_grad: Tensor):
+        # this could be optimized, we could compute the derivative directly rather than use backward().
+        x, = ctx.saved_tensors
+        y, function_deriv = digital_swoosh_forward_and_deriv(x)
+        return y_grad * function_deriv
+
+class DigitalSwoosh(torch.nn.Module):
+    def forward(self, x: Tensor) -> Tensor:
+        """Return Digital Swoosh-L activation."""
+        if torch.jit.is_scripting() or torch.jit.is_tracing():
+            return digital_swoosh_forward(x)
+        return DigitalSwooshFunction.apply(x)
+
+
 
 
 class ActivationDropoutAndLinearFunction(torch.autograd.Function):
