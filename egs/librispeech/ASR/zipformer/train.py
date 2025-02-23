@@ -1295,7 +1295,7 @@ def run(rank, world_size, args):
         # "optimizer.write_debug_info(), we can continue with training and let the
         # background thread take care of dumping those events at its own speed.
         tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard",
-                                  max_queue=10000000)
+                                  max_queue=100)
     else:
         tb_writer = None
 

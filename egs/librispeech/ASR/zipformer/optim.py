@@ -341,7 +341,8 @@ def _write_debug_info(group, state, param_names, summary_writer):
         for name, info in zip(param_names, debug_info[..., i].unbind(dim=1)):
             debug_str = f"debug/{legend}/{name}"
             for step, value in zip(steps.tolist(), info.tolist()):
-                summary_writer.add_scalar(debug_str, value, step)
+                if step >= 0:
+                    summary_writer.add_scalar(debug_str, value, step)
 
 
 
