@@ -1634,11 +1634,30 @@ def SwooshRForward(x: Tensor):
 
 
 def digital_swoosh_forward(x):
-    # power-based swooshy thing with power=1.7
-    power = 2.1
-    x_abs = x.abs()
-    return torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
+    pos_power = 2.1
+    pos_cutoff = 1.0  # x cutoff where it becomes linear for x>0
 
+    neg_power = 2.1
+    neg_cutoff = 1.0
+    neg_coeff = 0.1
+
+    x_abs = x.abs()
+
+    pos_cutoff_y = pos_cutoff ** pos_power
+    pos_cutoff_dy_dx = pos_power * (pos_cutoff ** (pos_power - 1))
+    pos_cutoff_offset = pos_cutoff_y - (pos_cutoff_dy_dx * pos_cutoff)
+
+    neg_cutoff_y = neg_coeff * (neg_cutoff ** neg_power)
+    neg_cutoff_dy_dx = neg_coeff * neg_power * (neg_cutoff ** (neg_power - 1))
+    neg_cutoff_offset = neg_cutoff_y - (neg_cutoff_dy_dx - neg_cutoff)
+
+    y_pos = torch.where(x_abs > pos_cutoff,
+                        x_abs ** pos_power,
+                        x_abs * pos_cutoff_dy_dx + pos_cutoff_offset)
+    y_neg = torch.where(x_abs > neg_cutoff,
+                        x_abs ** neg_power,
+                        x_abs * neg_cutoff_dy_dx + neg_cutoff_offset)
+    return torch.where(x > 0, y_pos, y_neg)
 
 
 
@@ -1646,9 +1665,7 @@ def digital_swoosh_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        power = 2.1
-        x_abs = x.abs()
-        y = torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
+        y = digital_swoosh_forward(x)
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
