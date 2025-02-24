@@ -1635,7 +1635,7 @@ def SwooshRForward(x: Tensor):
 
 def digital_swoosh_forward(x):
     # power-based swooshy thing with power=1.7
-    power = 2.2
+    power = 2.1
     x_abs = x.abs()
     return torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
 
@@ -1646,7 +1646,7 @@ def digital_swoosh_forward_and_deriv(x):
     with torch.enable_grad():
         x = x.detach()
         x.requires_grad = True
-        power = 2.2
+        power = 2.1
         x_abs = x.abs()
         y = torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
         y.backward(gradient=torch.ones_like(y))
