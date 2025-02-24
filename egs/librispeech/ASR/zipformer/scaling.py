@@ -1638,7 +1638,7 @@ def digital_swoosh_forward(x):
 
     power = 1.7
     x_abs = x.abs()
-    return torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
+    return -1.0e-03 + torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
 
 
 
@@ -1649,7 +1649,7 @@ def digital_swoosh_forward_and_deriv(x):
         x.requires_grad = True
         power = 1.7
         x_abs = x.abs()
-        y = torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
+        y = -1.0e-03 + torch.where(x_abs < 1, x_abs ** power, power * x_abs + (1 - power)) * torch.where(x > 0, 1.0, 0.1)
         y.backward(gradient=torch.ones_like(y))
         return y, x.grad
 
