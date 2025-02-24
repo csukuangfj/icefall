@@ -639,7 +639,10 @@ class ScaledAdam(BatchedOptimizer):
             with self.batched_params(group["params"], group_params_names) as batches:
                 for _p, state, names in batches:
                     _write_debug_info(group, state, names, summary_writer)
-                    del state["debug_info_cpu"]
+                    try:
+                        del state["debug_info_cpu"]
+                    except:
+                        pass
 
     def _get_clipping_scale(
         self, group: dict, tuples: List[Tuple[Tensor, dict, List[str]]]
