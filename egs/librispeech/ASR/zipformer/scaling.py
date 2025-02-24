@@ -1649,7 +1649,7 @@ def digital_swoosh_forward(x):
 
     neg_cutoff_y = neg_coeff * (neg_cutoff ** neg_power)
     neg_cutoff_dy_dx = neg_coeff * neg_power * (neg_cutoff ** (neg_power - 1))
-    neg_cutoff_offset = neg_cutoff_y - (neg_cutoff_dy_dx - neg_cutoff)
+    neg_cutoff_offset = neg_cutoff_y - (neg_cutoff_dy_dx * neg_cutoff)
 
     y_pos = torch.where(x_abs < pos_cutoff,
                         x_abs ** pos_power,
