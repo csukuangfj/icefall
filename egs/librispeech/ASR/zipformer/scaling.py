@@ -1634,29 +1634,29 @@ def SwooshRForward(x: Tensor):
 
 
 def digital_swoosh_forward(x):
-    pos_power = 2.1
-    pos_cutoff = 1.0  # x cutoff where it becomes linear for x>0
+    pos_power1 = 2.0
+    pos_power2 = 1.0
 
-    neg_power = 2.1
-    neg_cutoff = 1.0
-    neg_coeff = 0.08
+
+    neg_power1 = 2.0
+    neg_power2 = 0.75
+
+    neg_coeff = 0.1
 
     x_abs = x.abs()
 
-    pos_cutoff_y = pos_cutoff ** pos_power
-    pos_cutoff_dy_dx = pos_power * (pos_cutoff ** (pos_power - 1))
-    pos_cutoff_offset = pos_cutoff_y - (pos_cutoff_dy_dx * pos_cutoff)
+    pos_power2_coeff = pos_power1 / pos_power2
+    pos_offset = 1 - pos_power2_coeff
 
-    neg_cutoff_y = neg_coeff * (neg_cutoff ** neg_power)
-    neg_cutoff_dy_dx = neg_coeff * neg_power * (neg_cutoff ** (neg_power - 1))
-    neg_cutoff_offset = neg_cutoff_y - (neg_cutoff_dy_dx * neg_cutoff)
+    neg_power2_coeff = neg_power1 / neg_power2
+    neg_offset = 1 - neg_power2_coeff
 
-    y_pos = torch.where(x_abs < pos_cutoff,
-                        x_abs ** pos_power,
-                        x_abs * pos_cutoff_dy_dx + pos_cutoff_offset)
-    y_neg = torch.where(x_abs < neg_cutoff,
-                        neg_coeff * (x_abs ** neg_power),
-                        x_abs * neg_cutoff_dy_dx + neg_cutoff_offset)
+    y_pos = torch.where(x_abs < 1,
+                        x_abs ** pos_power1,
+                        (x_abs ** pos_power2) * pos_power2_coeff + pos_offset)
+    y_neg = torch.where(x_abs < 1,
+                        x_abs ** neg_power1,
+                        (x_abs ** neg_power2) * neg_power2_coeff + neg_offset) * neg_coeff
     return torch.where(x > 0, y_pos, y_neg)
 
 
