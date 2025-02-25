@@ -1635,7 +1635,7 @@ def SwooshRForward(x: Tensor):
 
 def digital_swoosh_forward(x):
     pos_power1 = 2.0
-    pos_power2 = 1.3
+    pos_power2 = 0.8
 
 
     neg_power1 = 2.0
