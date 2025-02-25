@@ -1644,6 +1644,7 @@ def digital_swoosh_forward(x):
     neg_coeff = 0.1
 
     x_abs = x.abs()
+    x_abs_clamp = x_abs.clamp(min=1.) # trying avoid inf*0=nan in backprop.
 
     pos_power2_coeff = pos_power1 / pos_power2
     pos_offset = 1 - pos_power2_coeff
@@ -1653,10 +1654,10 @@ def digital_swoosh_forward(x):
 
     y_pos = torch.where(x_abs < 1,
                         x_abs ** pos_power1,
-                        (x_abs ** pos_power2) * pos_power2_coeff + pos_offset)
+                        (x_abs_clamp ** pos_power2) * pos_power2_coeff + pos_offset)
     y_neg = torch.where(x_abs < 1,
                         x_abs ** neg_power1,
-                        (x_abs ** neg_power2) * neg_power2_coeff + neg_offset) * neg_coeff
+                        (x_abs_clamp ** neg_power2) * neg_power2_coeff + neg_offset) * neg_coeff
     return torch.where(x > 0, y_pos, y_neg)
 
 
