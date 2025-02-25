@@ -1638,8 +1638,8 @@ def digital_swoosh_forward(x):
     pos_cutoff = 1.0  # x cutoff where it becomes linear for x>0
 
     neg_power = 2.1
-    neg_cutoff = 1.0
-    neg_coeff = 0.1
+    neg_cutoff = 0.75
+    neg_coeff = 0.1333
 
     x_abs = x.abs()
 
