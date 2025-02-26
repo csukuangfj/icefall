@@ -476,8 +476,8 @@ def get_parser():
     parser.add_argument(
         "--reconstruction-loss-scale",
         type=float,
-        default=0.01,
-        help="Scale for log-mel reconstruction loss.",
+        default=0.005,
+        help="Final scale for log-mel reconstruction loss (during warmup, use twice this scale).",
     )
 
     parser.add_argument(
@@ -984,7 +984,10 @@ def compute_loss(
             if use_cr_ctc:
                 loss += params.cr_loss_scale * cr_loss
 
-        loss += params.reconstruction_loss_scale * reconstruction_loss
+        reconstruction_loss_scale = (params.reconstruction_loss_scale *
+                                     max(1.0, 2.0 - 1.0 * (batch_idx_train / warm_step)))
+
+        loss += reconstruction_loss_scale * reconstruction_loss
 
         if params.use_attention_decoder:
             loss += params.attention_decoder_loss_scale * attention_decoder_loss
