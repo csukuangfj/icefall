@@ -1618,17 +1618,17 @@ class FeedforwardModule(nn.Module):
     def __init__(self, embed_dim: int, feedforward_dim: int, dropout: FloatLike):
         super(FeedforwardModule, self).__init__()
         # try to get in the useful range of the activation function, i.e. not too small.
-        self.in_proj = ScaledLinear(embed_dim, feedforward_dim)
+        self.in_proj = ScaledLinear(embed_dim, feedforward_dim, initial_scale=5.0)
 
         # shared_dim=0 means we share the dropout mask along the time axis
         self.out_proj = ActivationDropoutAndLinear(
             feedforward_dim,
             embed_dim,
-            activation="DigitalSwoosh",
+            activation="SwooshL",
             dropout_p=dropout,
             dropout_shared_dim=0,
             bias=True,
-            initial_scale=0.5,
+            initial_scale=0.1,
         )
 
         self.out_whiten = Whiten(
@@ -1861,7 +1861,7 @@ class ConvolutionModule(nn.Module):
         self.out_proj = ActivationDropoutAndLinear(
             bottleneck_dim,
             channels,
-            activation="DigitalSwoosh",
+            activation="SwooshR",
             dropout_p=0.0,
             initial_scale=0.05,
         )

@@ -62,16 +62,17 @@ class ConvNeXt(nn.Module):
             padding=self.padding,
         )
 
-        self.pointwise_conv1 = nn.Conv2d(
-            in_channels=channels, out_channels=hidden_channels, kernel_size=1
+        self.pointwise_conv1 = ScaledConv2d(
+            in_channels=channels, out_channels=hidden_channels, kernel_size=1, initial_scale=4.0
         )
 
-        self.activation = DigitalSwoosh()
+        self.activation = SwooshL()
 
-        self.pointwise_conv2 = nn.Conv2d(
+        self.pointwise_conv2 = ScaledConv2d(
             in_channels=hidden_channels,
             out_channels=channels,
             kernel_size=1,
+            initial_scale=0.25,
         )
 
 
@@ -191,7 +192,7 @@ class Conv2dSubsampling(nn.Module):
                 padding=(0, 1),  # (time, freq)
             ),
             ScaleGrad(0.2),
-            DigitalSwoosh(),
+            SwooshR(),
             nn.Conv2d(
                 in_channels=layer1_channels,
                 out_channels=layer2_channels,
@@ -199,14 +200,14 @@ class Conv2dSubsampling(nn.Module):
                 stride=2,
                 padding=0,
             ),
-            DigitalSwoosh(),
+            SwooshR(),
             nn.Conv2d(
                 in_channels=layer2_channels,
                 out_channels=layer3_channels,
                 kernel_size=3,
                 stride=(1, 2),  # (time, freq)
             ),
-            DigitalSwoosh(),
+            SwooshR(),
         )
 
         # just one convnext layer
