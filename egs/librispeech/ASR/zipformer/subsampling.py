@@ -32,7 +32,6 @@ from scaling import (
     ScaleGrad,
     ScheduledFloat,
     SwooshL,
-    DigitalSwoosh,
     SwooshR,
     Whiten,
 )
@@ -62,17 +61,16 @@ class ConvNeXt(nn.Module):
             padding=self.padding,
         )
 
-        self.pointwise_conv1 = ScaledConv2d(
-            in_channels=channels, out_channels=hidden_channels, kernel_size=1, initial_scale=4.0
+        self.pointwise_conv1 = nn.Conv2d(
+            in_channels=channels, out_channels=hidden_channels, kernel_size=1,
         )
 
         self.activation = SwooshL()
 
-        self.pointwise_conv2 = ScaledConv2d(
+        self.pointwise_conv2 = nn.Conv2d(
             in_channels=hidden_channels,
             out_channels=channels,
             kernel_size=1,
-            initial_scale=0.25,
         )
 
 
