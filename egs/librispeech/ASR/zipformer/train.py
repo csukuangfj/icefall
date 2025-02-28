@@ -1008,7 +1008,7 @@ def compute_loss(
         info["ctc_loss"] = ctc_loss.detach().cpu().item()
         if params.use_cr_ctc:
             info["cr_loss"] = cr_loss.detach().cpu().item()
-    info["recon_loss"] = reconstruction_loss
+    info["recon_loss"] = reconstruction_loss.detach().cpu().item()
     if params.use_attention_decoder:
         info["attn_decoder_loss"] = attention_decoder_loss.detach().cpu().item()
 
