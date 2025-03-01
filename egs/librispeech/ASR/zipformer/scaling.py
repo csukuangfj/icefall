@@ -1464,6 +1464,18 @@ class Dropout3(nn.Module):
 
 
 
+def _swoosh_l_forward_wrapper(x):
+    return 0.25 * k2.swoosh_l_forward(x * 4)
+def _swoosh_r_forward_wrapper(x):
+    return 0.25 * k2.swoosh_r_forward(x * 4)
+def _swoosh_l_forward_and_deriv_wrapper(x):
+    y, dy_dx = k2.swoosh_l_forward_and_deriv(x * 4)
+    return 0.25 * y, dy_dx
+def _swoosh_r_forward_and_deriv_wrapper(x):
+    y, dy_dx = k2.swoosh_r_forward_and_deriv(x * 4)
+    return 0.25 * y, dy_dx
+
+
 
 class SwooshL(torch.nn.Module):
     def forward(self, x: Tensor) -> Tensor:
@@ -1472,7 +1484,7 @@ class SwooshL(torch.nn.Module):
             zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
             return 0.25 * logaddexp(zero, 4 * x - 4.0) - 0.08 * x - 0.00875
         if not x.requires_grad:
-            return 0.25 * k2.swoosh_l_forward(x * 4)
+            return _swoosh_l_forward_wrapper(x)
         else:
             return 0.25 * k2.swoosh_l(x * 4)
 
@@ -1492,7 +1504,7 @@ class SwooshR(torch.nn.Module):
             zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
             return 0.25 * logaddexp(zero, 4 * x - 1.0) - 0.08 * x - 0.07831542175
         if not x.requires_grad:
-            return 0.25 * k2.swoosh_r_forward(4 * x)
+            return _swoosh_r_forward_wrapper(x)
         else:
             return 0.25 * k2.swoosh_r(4 * x)
 
@@ -1552,8 +1564,8 @@ class ActivationDropoutAndLinearFunction(torch.autograd.Function):
         ctx.activation = activation
 
         forward_activation_dict = {
-            "SwooshL": k2.swoosh_l_forward,
-            "SwooshR": k2.swoosh_r_forward,
+            "SwooshL": _swoosh_l_forward_wrapper,
+            "SwooshR": _swoosh_r_forward_wrapper,
         }
         # it will raise a KeyError if this fails.  This will be an error.  We let it
         # propagate to the user.
@@ -1571,8 +1583,8 @@ class ActivationDropoutAndLinearFunction(torch.autograd.Function):
         (x, weight, bias, dropout_mask) = saved
 
         forward_and_deriv_activation_dict = {
-            "SwooshL": k2.swoosh_l_forward_and_deriv,
-            "SwooshR": k2.swoosh_r_forward_and_deriv,
+            "SwooshL": _swoosh_l_forward_and_deriv_wrapper,
+            "SwooshR": _swoosh_r_forward_and_deriv_wrapper,
         }
         # the following lines a KeyError if the activation is unrecognized.
         # This will be an error.  We let it propagate to the user.
