@@ -1243,7 +1243,7 @@ class Eve(Optimizer):
 def _test_scaled_adam(hidden_dim: int):
     import timeit
 
-    from scaling import ScaledLinear
+    from scaling import ScaledLinear #, OrthogonalLinear
 
     E = 100
     B = 4
@@ -1266,6 +1266,7 @@ def _test_scaled_adam(hidden_dim: int):
 
         m = torch.nn.Sequential(
             Linear(E, hidden_dim),
+            #OrthogonalLinear(hidden_dim, hidden_dim),
             torch.nn.PReLU(),
             Linear(hidden_dim, hidden_dim),
             torch.nn.PReLU(),

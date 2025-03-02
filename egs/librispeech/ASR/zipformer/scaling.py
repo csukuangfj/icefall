@@ -548,47 +548,99 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
             torch.nn.init.uniform_(ans.bias, -0.1 * initial_scale, 0.1 * initial_scale)
     return ans
 
+
+class OrthogonalLinearFunction(torch.autograd.Function):
+    @staticmethod
+    @custom_fwd
+    def forward(ctx, x, weight):
+        ctx.save_for_backward(x, weight)
+        return torch.matmul(x, weight.t())
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, y_grad):
+        x, weight = ctx.saved_tensors
+
+        if x.requires_grad:
+            x_grad = torch.matmul(y_grad, weight)
+        else:
+            x_grad = None
+
+        if weight.requires_grad:
+            weight_grad = torch.matmul(y_grad.reshape(-1, y_grad.shape[-1]).t(),
+                                       x.reshape(-1, x.shape[-1]))
+
+            # now get extra gradient term that penalizes non-orthogonality.
+            weight = weight.detach()
+
+            if weight.shape[0] > weight.shape[1]:
+                prod = torch.matmul(weight.t(), weight)
+            else:
+                prod = torch.matmul(weight, weight.t())
+
+            # we'll try to enforce that prod is any constant times the identity.
+
+            # in the loss-function:
+            #  orthognonality_loss = ((prod * alpha - I) ** 2).sum(),
+            # the following formula gives the alpha that means d(err)/d(scale-of-prod) will be zero.
+            # alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
+            # we actually need 1/alpha:
+            inverse_alpha = (prod ** 2).sum(dim=1).mean(dim=0) / prod.diag().mean()
+            if random.random() < 0.01:
+                loss = ((prod / inverse_alpha - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)) ** 2).mean() * prod.shape[0]
+                logging.info(f"inverse_alpha = {inverse_alpha.item()}, loss={loss.item()}")
+            # OK, imagining:
+            # err = 0.5 * ((prod ** 2).sum() * (alpha ** 2)
+            #             - 2 * alpha * prod.diag().sum()
+            #              = prod.shape[0])
+            # do d(err)/d(prod) =  (alpha**2) * prod - alpha * I
+            #... and we'll be normalizing out any scalar factor anyway, so by dividing
+            # by alpha**2 we can treat it as:
+            #  d(err)/d(prod) =   prod - I / alpha
+            prod_deriv = prod
+            N = prod.shape[0]
+            prod_deriv_diag = torch.as_strided(prod_deriv, size=(N,), stride=(N+1,))
+            prod_deriv_diag.add_(-inverse_alpha)  # modified prod_deriv in place
+            # now, assuming we had not done transpose above, d(err)/d(weight) = 2 * torch.matmul(
+            if weight.shape[0] > weight.shape[1]:
+                weight_err_grad = torch.matmul(weight, prod_deriv)
+            else:
+                weight_err_grad = torch.matmul(prod_deriv, weight)
+            # now scale weight_err_grad to have the same norm as weight grad: this will make sure
+            # it has about the required magnitude without overwhelming the main loss.
+            eps = torch.finfo(weight_err_grad.dtype).tiny
+
+            # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
+            # reflect something close to the actual gradient scale.  This will be enough for it
+            # to fully enforce the constraint.
+            err_rel_scale = 0.25
+            err_scale = err_rel_scale * weight_grad.abs().mean() / (weight_err_grad.abs().mean() + eps)
+
+            weight_grad += err_scale * weight_err_grad
+        else:
+            weight_grad = None
+        return x_grad, weight_grad
+
+
+
 class OrthogonalLinear(nn.Linear):
+    # penalty_scale does nothing, it is deprecated.
     def __init__(self, num_channels: int, penalty_scale: FloatLike = 1000.0):
         super().__init__(num_channels, num_channels, bias=False)
-        self.penalty_scale = copy.deepcopy(penalty_scale)
-        self.min_product_scale = 0.01
-        self.name = None  # will be set from training loop. for printing penalty.
 
         with torch.no_grad():
             # this is not orthogonal but should quickly become so.
             self.weight[:] = torch.randn(num_channels, num_channels) * (num_channels ** -0.5)
 
     def forward(self, x: Tensor):
-        ans = nn.functional.linear(x, self.weight, self.bias)
-        if torch.jit.is_scripting() or torch.jit.is_tracing() or not self.training:
-            return ans
-        penalty_scale = float(self.penalty_scale)
-        if penalty_scale == 0.0:
-            return ans
-        weight = self.weight
-        if weight.shape[0] > weight.shape[1]:
-            weight = weight.t()
-        prod = torch.matmul(weight, weight.t())  # enforce that this is any constant times the identity.
-        # could include penalty_scale later on, but we do it at this point to make overflow of
-        # grads less likely (because they are aggregated earlier on, via sum()).
-        prod = scale_grad(prod, penalty_scale)
-        with torch.no_grad():
-            alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
-            alpha = alpha.clamp_(max=1. / self.min_product_scale)
+        if torch.jit.is_scripting() or torch.jit.is_tracing():
+            return torch.nn.functional.linear(x, self.weight, self.bias)
 
-        # following is equivalent to penalty_scale ((prod * alpha - I) **
-        # 2).sum(), but more memory and compute efficient.
-        err = ((prod ** 2).sum() * (alpha ** 2) +
-               (-2 * alpha) * prod.diag().sum() +
-               prod.shape[0])
-
-        ans = with_loss(ans, err, self.name)
-        if random.random() < 0.001 or __name__ == '__main__':
-            with torch.no_grad():
-                ans_rms = (ans ** 2).mean().sqrt()
-            logging.info(f"{self.name}: product_scale={1/alpha}, dim={weight.shape}, avg_err = {err} * {penalty_scale} = {err*penalty_scale}, ans-rms={ans_rms}")
+        ans = OrthogonalLinearFunction.apply(x, self.weight)
+        if self.bias is not None:
+            ans = ans + self.bias
         return ans
+
 
 def OrthogonalLinearSpecial(num_channels: int,
                             penalty_scale: float = 1000.0,
@@ -1885,10 +1937,6 @@ def _test_activation_dropout_and_linear():
                 x1 = torch.randn(10, in_channels)
                 x1.requires_grad = True
 
-                # TEMP.
-                assert torch.allclose(
-                    SwooshRFunction.apply(x1), SwooshRForward(x1), atol=1.0e-03
-                )
 
                 x2 = x1.clone().detach()
                 x2.requires_grad = True
