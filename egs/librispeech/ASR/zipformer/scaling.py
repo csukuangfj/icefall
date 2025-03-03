@@ -552,8 +552,9 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
 class OrthogonalLinearFunction(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, x, weight):
+    def forward(ctx, x, weight, name):
         ctx.save_for_backward(x, weight)
+        ctx.name = name
         return torch.matmul(x, weight.t())
 
     @staticmethod
@@ -586,9 +587,9 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             # alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
             # we actually need 1/alpha:
             inverse_alpha = (prod ** 2).sum(dim=1).mean(dim=0) / prod.diag().mean()
-            if random.random() < 0.01:
+            if random.random() < 0.002:
                 loss = ((prod / inverse_alpha - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)) ** 2).mean() * prod.shape[0]
-                logging.info(f"inverse_alpha = {inverse_alpha.item()}, loss={loss.item()}")
+                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().item()}, loss={loss.item()}")
             # OK, imagining:
             # err = 0.5 * ((prod ** 2).sum() * (alpha ** 2)
             #             - 2 * alpha * prod.diag().sum()
@@ -619,7 +620,7 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             weight_grad += err_scale * weight_err_grad
         else:
             weight_grad = None
-        return x_grad, weight_grad
+        return x_grad, weight_grad, None
 
 
 
@@ -627,6 +628,7 @@ class OrthogonalLinear(nn.Linear):
     # penalty_scale does nothing, it is deprecated.
     def __init__(self, num_channels: int, penalty_scale: FloatLike = 1000.0):
         super().__init__(num_channels, num_channels, bias=False)
+        self.name = None
 
         with torch.no_grad():
             # this is not orthogonal but should quickly become so.
@@ -636,7 +638,7 @@ class OrthogonalLinear(nn.Linear):
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             return torch.nn.functional.linear(x, self.weight, self.bias)
 
-        ans = OrthogonalLinearFunction.apply(x, self.weight)
+        ans = OrthogonalLinearFunction.apply(x, self.weight, self.name)
         if self.bias is not None:
             ans = ans + self.bias
         return ans
