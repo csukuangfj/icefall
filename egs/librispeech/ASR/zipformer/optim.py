@@ -1266,7 +1266,7 @@ def _test_scaled_adam(hidden_dim: int):
 
         m = torch.nn.Sequential(
             Linear(E, hidden_dim),
-            #OrthogonalLinear(hidden_dim, hidden_dim),
+            #OrthogonalLinear(hidden_dim, hidden_dim, bias=True, out_groups=1),
             torch.nn.PReLU(),
             Linear(hidden_dim, hidden_dim),
             torch.nn.PReLU(),
