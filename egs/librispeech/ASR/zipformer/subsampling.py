@@ -208,6 +208,7 @@ class Conv2dSubsampling(nn.Module):
             SwooshR(),
         )
 
+
         # just one convnext layer
         self.convnext = ConvNeXt(layer3_channels, kernel_size=(7, 7))
 
@@ -215,9 +216,15 @@ class Conv2dSubsampling(nn.Module):
         self.out_width = (((in_channels - 1) // 2) - 1) // 2
         self.layer3_channels = layer3_channels
 
+
         # scale it up a bit, else the output is quite small.
         self.out = ScaledLinear(self.out_width * layer3_channels, out_channels,
                                 initial_scale=4.0)
+
+        # conv.lr_scale and out.lr_scale are learning-rate factors for non-residual components;
+        # they will be interpreted by get_parameter_groups_with_lrs().
+        self.conv.lr_scale = 0.5
+        self.out.lr_scale = 0.5
 
         self.out_limiter = ScaleLimiter(max_scale=4.0)
 

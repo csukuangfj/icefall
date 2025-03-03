@@ -95,6 +95,8 @@ class AsrModel(nn.Module):
             assert hasattr(decoder, "blank_id")
             assert joiner is not None
 
+
+
             self.decoder = decoder
             self.joiner = joiner
 
@@ -104,6 +106,7 @@ class AsrModel(nn.Module):
             self.simple_lm_proj = ScaledLinear(
                 decoder_dim, vocab_size, initial_scale=0.1,
             )
+
         else:
             assert decoder is None
             assert joiner is None
@@ -126,6 +129,19 @@ class AsrModel(nn.Module):
         self.reconstruction_proj = ScaledLinear(
             encoder_dim, 4 * encoder_embed.in_channels, initial_scale=0.1)
         self.reconstruction_loss = torch.nn.SmoothL1Loss(reduction='none', beta=1.0)
+
+
+
+        # lr_scale is a learning-rate factor for non-residual components;
+        # it will be interpreted by get_parameter_groups_with_lrs()
+        for m in ['decoder', 'joiner', 'simple_am_proj', 'simple_lm_proj',
+                  'reconstruction_proj', 'ctc_output']:
+            try:
+                module = getattr(self, m)
+                module.lr_scale = 0.5
+            except AttributeError:  # e.g. use_ctc == False
+                pass
+
 
     def forward_encoder(
         self, x: torch.Tensor, x_lens: torch.Tensor

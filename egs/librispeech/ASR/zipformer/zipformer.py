@@ -143,7 +143,7 @@ class Zipformer2(EncoderInterface):
         self.chunk_size = chunk_size
         self.left_context_frames = left_context_frames
 
-        # each one will be Zipformer2Encoder or InvertibleDownsample or InvertibleUpsample
+        # each one will be Zipformer2Encoder or OrthogonalDownsample or OrthogonalUpsample
         encoders = []
 
         num_encoders = len(downsampling_factor)
@@ -159,11 +159,11 @@ class Zipformer2(EncoderInterface):
         def set_downsample_factor(cur_downsample, ds):
             while cur_downsample < ds:
                 # need to downsample
-                encoders.append(InvertibleDownsample(channels=input_dim * cur_downsample,
+                encoders.append(OrthogonalDownsample(channels=input_dim * cur_downsample,
                                                      proj_dim=min(2 * input_dim * cur_downsample, max_proj_dim)))
                 cur_downsample *= 2
             while cur_downsample > ds:
-                encoders.append(InvertibleUpsample(channels=input_dim * cur_downsample,
+                encoders.append(OrthogonalUpsample(channels=input_dim * cur_downsample,
                                                    proj_dim=min(input_dim * cur_downsample, max_proj_dim)))
                 cur_downsample //= 2
             return cur_downsample
@@ -921,9 +921,9 @@ class BypassModule(nn.Module):
 
 
 
-class InvertibleDownsample(torch.nn.Module):
+class OrthogonalDownsample(torch.nn.Module):
     """
-    Does downsampling in an invertible way, by a factor of two.  Projection is initialized
+    Does downsampling with an orthogonal matrix, by a factor of two.  Projection is initialized
     in a special way and enforced to be orthogonal.
 
     Args:
@@ -943,6 +943,9 @@ class InvertibleDownsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels * 2
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
+        # this is a learning-rate factor for non-residual components; lr_scale will be interpreted by
+        # get_parameter_groups_with_lrs().
+        self.proj.lr_scale = 0.5
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -973,10 +976,9 @@ class InvertibleDownsample(torch.nn.Module):
             src = self.proj(src)
         return src
 
-class InvertibleUpsample(torch.nn.Module):
+class OrthogonalUpsample(torch.nn.Module):
     """
-    A very simple form of upsampling that is the inverse of InvertibleDownsampling.
-    Projection is initialized in a special way and enforced to be orthogonal.
+    A very simple form of upsampling with an orthogonal matrix.
 
        proj_dim: the number of channels that will actually be projected; the rest are just copied.
                   proj_dim=channels would mean all channels are projected in a learned way
@@ -990,6 +992,9 @@ class InvertibleUpsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
+        # lr_scale is a learning-rate factor for non-residual components; it will be interpreted by
+        # get_parameter_groups_with_lrs()
+        self.proj.lr_scale = 0.5
 
     def forward(self, src: Tensor) -> Tensor:
         """
