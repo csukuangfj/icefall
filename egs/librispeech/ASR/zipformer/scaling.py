@@ -574,8 +574,6 @@ class OrthogonalLinearFunction(torch.autograd.Function):
         out_groups, in_groups, group_size = ctx.out_groups, ctx.in_groups, ctx.group_size
 
         if weight.requires_grad:
-
-
             weight_grad = torch.matmul(y_grad.reshape(-1, y_grad.shape[-1]).t(),
                                        x.reshape(-1, x.shape[-1]))
 
@@ -583,11 +581,13 @@ class OrthogonalLinearFunction(torch.autograd.Function):
 
             # First get w which is of shape (num_groups, out_channels_per_group, in_channels_per_group)
             if out_groups > 0:
-                w = weight[:out_groups*group_size].reshape(out_groups, group_size, weight.shape[1])
+                func = lambda x: x[:out_groups*group_size].reshape(out_groups, group_size, x.shape[1])
             elif in_groups > 0:
-                w = weight[:, :in_groups*group_size].reshape(weight.shape[0], in_groups, group_size).transpose(0, 1)
+                func = lambda x: x[:, :in_groups*group_size].reshape(x.shape[0], in_groups, group_size).transpose(0, 1)
             else:
-                w = weight.unsqueeze(0)
+                func = lambda x: x.unsqueeze(0)
+            w = func(weight)
+            w_orig_grad = func(weight_grad)
 
             # Compute symmetric matrix-product prod with the smallest dimension
             # possible given the shape of w.
@@ -610,10 +610,12 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             prod_diag = torch.as_strided(prod, size=(groups, r), stride=(groups_stride, r_stride+c_stride))
             # inverse_alpha: (groups, 1)
             inverse_alpha = (prod ** 2).sum(dim=2).mean(dim=1, keepdim=True) / prod_diag.mean(dim=1, keepdim=True)
-            if random.random() < 0.002:
+
+            do_print = random.random() < 0.005
+            if do_print:
                 eye = torch.eye(prod.shape[1], device=prod.device, dtype=prod.dtype).unsqueeze(0)
                 loss = ((prod / inverse_alpha.unsqueeze(-1) - eye) ** 2).mean(dim=(1,2)) * prod.shape[1]
-                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}")
+
             # OK, imagining:
             # err = 0.5 * ((prod ** 2).sum() * (alpha ** 2)
             #             - 2 * alpha * prod.diag().sum()
@@ -633,6 +635,25 @@ class OrthogonalLinearFunction(torch.autograd.Function):
                 w_grad = torch.matmul(prod_deriv, w)
 
 
+            # we want to scale w_grad to have the same average element absolute-value
+            # as err_rel_scale times the average absolute-value in the
+            # corresponding part of weight_grad: this will make sure it has
+            # about the required magnitude without overwhelming the main loss.
+            eps = torch.finfo(w_grad.dtype).tiny
+
+            # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
+            # reflect something close to the actual gradient scale.  This will be enough for it
+            # to fully enforce the constraint.
+            err_rel_scale = 0.05
+            err_scale = err_rel_scale * (w_orig_grad.abs().mean(dim=(1,2), keepdim=True) /
+                                         w_grad.abs().mean(dim=(1,2), keepdim=True))
+            err_scale = torch.nan_to_num(err_scale, nan=0.0, posinf=0.0, neginf=0.0)
+
+            if do_print:
+                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}, err_scale={err_scale.flatten()}")
+
+            w_grad = w_grad * err_scale
+
             # now manually differentiate backward through the expression that computed w in the
             # if-elif-else statement above.
             if out_groups > 0:
@@ -650,18 +671,7 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             else:
                 weight_grad2 = w_grad.squeeze(0)
 
-
-            # now scale weight_grad2 to have the same norm as weight grad: this will make sure
-            # it has about the required magnitude without overwhelming the main loss.
-            eps = torch.finfo(weight_grad2.dtype).tiny
-
-            # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
-            # reflect something close to the actual gradient scale.  This will be enough for it
-            # to fully enforce the constraint.
-            err_rel_scale = 0.25
-            err_scale = err_rel_scale * weight_grad.abs().mean() / (weight_grad2.abs().mean() + eps)
-
-            weight_grad += err_scale * weight_grad2
+            weight_grad.add_(weight_grad2)
         else:
             weight_grad = None
         return x_grad, weight_grad, None, None, None, None
