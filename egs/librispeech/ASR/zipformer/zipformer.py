@@ -27,7 +27,6 @@ import torch
 from encoder_interface import EncoderInterface
 from scaling import (
     Identity,  # more friendly to backward hooks than nn.Identity(), for diagnostic reasons.
-    OrthogonalLinearSpecial,
     OrthogonalLinear,
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ScaleLimiter,
@@ -933,16 +932,13 @@ class OrthogonalDownsample(torch.nn.Module):
                   proj_dim=2 * channels would mean all channels are projected in a learned way
          causal: True for causal systems, only affects error messages as requires even
                  input num frames.
-   penalty_scale: Penalty scale to enforce orthogonal projection; this is specifiable because
-                it may interact with the scale of the loss function, i.e. if the loss-function
-                scale is smaller you may want this to be smaller.
     """
     def __init__(
-            self, channels: int, proj_dim: int, causal: bool = False, penalty_scale: float = 1000.0,
+            self, channels: int, proj_dim: int, causal: bool = False,
     ):
         super().__init__()
         assert proj_dim <= channels * 2
-        self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
+        self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
         # this is a learning-rate factor for non-residual components; lr_scale will be interpreted by
         # get_parameter_groups_with_lrs().
         self.proj.lr_scale = 0.75
@@ -982,16 +978,12 @@ class OrthogonalUpsample(torch.nn.Module):
 
        proj_dim: the number of channels that will actually be projected; the rest are just copied.
                   proj_dim=channels would mean all channels are projected in a learned way
-   penalty_scale: Penalty scale to enforce orthogonal projection; this is specifiable because
-                it may interact with the scale of the loss function, i.e. if the loss-function
-                scale is smaller you may want this to be smaller.
 
     """
-    def __init__(self, channels: int, proj_dim: int,
-                 penalty_scale: float = 1000.0):
+    def __init__(self, channels: int, proj_dim: int):
         super().__init__()
         assert proj_dim <= channels
-        self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
+        self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
         # lr_scale is a learning-rate factor for non-residual components; it will be interpreted by
         # get_parameter_groups_with_lrs()
         self.proj.lr_scale = 0.75
@@ -1504,7 +1496,8 @@ class SelfAttention(nn.Module):
         value_head_dim: int,
     ) -> None:
         super().__init__()
-        self.in_proj = nn.Linear(embed_dim, num_heads * value_head_dim, bias=True)
+        self.in_proj = OrthogonalLinear(embed_dim, num_heads * value_head_dim,
+                                        bias=True, out_groups=num_heads)
 
         self.out_proj = ScaledLinear(
             num_heads * value_head_dim, embed_dim, bias=True, initial_scale=0.05

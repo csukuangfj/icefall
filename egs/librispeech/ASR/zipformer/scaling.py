@@ -552,9 +552,12 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
 class OrthogonalLinearFunction(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, x, weight, name):
+    def forward(ctx, x, weight, name, in_groups, out_groups):
         ctx.save_for_backward(x, weight)
         ctx.name = name
+        ctx.out_groups = out_groups
+        ctx.in_groups = in_groups
+        assert not (in_groups > 1 and out_groups > 1)
         return torch.matmul(x, weight.t())
 
     @staticmethod
@@ -572,24 +575,37 @@ class OrthogonalLinearFunction(torch.autograd.Function):
                                        x.reshape(-1, x.shape[-1]))
 
             # now get extra gradient term that penalizes non-orthogonality.
-            weight = weight.detach()
-
-            if weight.shape[0] > weight.shape[1]:
-                prod = torch.matmul(weight.t(), weight)
+            # reshape weight to (groups, a, b) with a <= b (the latter is for efficiency)
+            if ctx.out_groups > 1:
+                w = weight.reshape(ctx.out_groups, -1, weight.shape[1])
+            elif ctx.in_groups > 1:
+                w = weight.reshape(weight.shape[0], ctx.in_groups, -1).transpose(0, 1)
             else:
-                prod = torch.matmul(weight, weight.t())
+                w = weight.unsqueeze(0)
 
-            # we'll try to enforce that prod is any constant times the identity.
+            if (w.shape[1] > w.shape[2]):
+                prod = torch.matmul(w.transpose(1, 2), w)
+            else:
+                prod = torch.matmul(w, w.transpose(1, 2))
+
+            # we'll try to enforce that for any i, prod[i] is any constant times the identity.
 
             # in the loss-function:
             #  orthognonality_loss = ((prod * alpha - I) ** 2).sum(),
             # the following formula gives the alpha that means d(err)/d(scale-of-prod) will be zero.
             # alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
             # we actually need 1/alpha:
-            inverse_alpha = (prod ** 2).sum(dim=1).mean(dim=0) / prod.diag().mean()
+
+            # note, prod_diag shares memory with prod, this will matter later on.
+            (groups, r, c) = prod.shape
+            (groups_stride, r_stride, c_stride) = prod.stride()
+            prod_diag = torch.as_strided(prod, size=(groups, r), stride=(groups_stride, r_stride+c_stride))
+            # inverse_alpha: (groups, 1)
+            inverse_alpha = (prod ** 2).sum(dim=2).mean(dim=1, keepdim=True) / prod_diag.mean(dim=1, keepdim=True)
             if random.random() < 0.002:
-                loss = ((prod / inverse_alpha - torch.eye(prod.shape[0], device=prod.device, dtype=prod.dtype)) ** 2).mean() * prod.shape[0]
-                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().item()}, loss={loss.item()}")
+                eye = torch.eye(prod.shape[1], device=prod.device, dtype=prod.dtype).unsqueeze(0)
+                loss = ((prod / inverse_alpha.unsqueeze(-1) - eye) ** 2).mean(dim=(1,2)) * prod.shape[1]
+                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}")
             # OK, imagining:
             # err = 0.5 * ((prod ** 2).sum() * (alpha ** 2)
             #             - 2 * alpha * prod.diag().sum()
@@ -599,46 +615,65 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             # by alpha**2 we can treat it as:
             #  d(err)/d(prod) =   prod - I / alpha
             prod_deriv = prod
-            N = prod.shape[0]
-            prod_deriv_diag = torch.as_strided(prod_deriv, size=(N,), stride=(N+1,))
-            prod_deriv_diag.add_(-inverse_alpha)  # modified prod_deriv in place
-            # now, assuming we had not done transpose above, d(err)/d(weight) = 2 * torch.matmul(
-            if weight.shape[0] > weight.shape[1]:
-                weight_err_grad = torch.matmul(weight, prod_deriv)
+            prod_deriv_diag = prod_diag # since prod_deriv shares memory with prod.
+            prod_deriv_diag.add_(-inverse_alpha)  # modifies prod_deriv in place
+
+            # differentiate through computation of prod:
+            if w.shape[1] > w.shape[2]:
+                w_grad = torch.matmul(w, prod_deriv)
             else:
-                weight_err_grad = torch.matmul(prod_deriv, weight)
-            # now scale weight_err_grad to have the same norm as weight grad: this will make sure
+                w_grad = torch.matmul(prod_deriv, w)
+
+
+            # now reshape back to weight_grad2 (call it weight_grad2 to distinguish
+            # from the gradient weight_grad that comes from the main loss)
+            if ctx.out_groups > 1:
+                weight_grad2 = w_grad.reshape(*weight.shape)
+            elif ctx.in_groups > 1:
+                weight_grad2 = w_grad.transpose(0, 1).reshape(*weight.shape)
+            else:
+                weight_grad2 = w_grad.squeeze(0)
+
+
+
+            # now scale weight_grad2 to have the same norm as weight grad: this will make sure
             # it has about the required magnitude without overwhelming the main loss.
-            eps = torch.finfo(weight_err_grad.dtype).tiny
+            eps = torch.finfo(weight_grad2.dtype).tiny
 
             # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
             # reflect something close to the actual gradient scale.  This will be enough for it
             # to fully enforce the constraint.
             err_rel_scale = 0.25
-            err_scale = err_rel_scale * weight_grad.abs().mean() / (weight_err_grad.abs().mean() + eps)
+            err_scale = err_rel_scale * weight_grad.abs().mean() / (weight_grad2.abs().mean() + eps)
 
-            weight_grad += err_scale * weight_err_grad
+            weight_grad += err_scale * weight_grad2
         else:
             weight_grad = None
-        return x_grad, weight_grad, None
+        return x_grad, weight_grad, None, None, None
 
 
 
 class OrthogonalLinear(nn.Linear):
     # penalty_scale does nothing, it is deprecated.
-    def __init__(self, num_channels: int, penalty_scale: FloatLike = 1000.0):
-        super().__init__(num_channels, num_channels, bias=False)
+    # if in_groups or out_groups are set to >1, the orthogonal constraint
+    # will be set per group.  both of them cannot be >1.
+    def __init__(self, in_channels: int, out_channels: int,
+                 in_groups: int = 1, out_groups: int = 1,
+                 bias: bool = True):
+        super().__init__(in_channels, out_channels, bias=bias)
         self.name = None
+        self.in_groups = in_groups
+        self.out_groups = out_groups
 
         with torch.no_grad():
             # this is not orthogonal but should quickly become so.
-            self.weight[:] = torch.randn(num_channels, num_channels) * (num_channels ** -0.5)
+            self.weight[:] = torch.randn(out_channels, in_channels) * (in_channels ** -0.5)
 
     def forward(self, x: Tensor):
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             return torch.nn.functional.linear(x, self.weight, self.bias)
 
-        ans = OrthogonalLinearFunction.apply(x, self.weight, self.name)
+        ans = OrthogonalLinearFunction.apply(x, self.weight, self.name, self.in_groups, self.out_groups)
         if self.bias is not None:
             ans = ans + self.bias
         return ans
