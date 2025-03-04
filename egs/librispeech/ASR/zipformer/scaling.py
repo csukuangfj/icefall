@@ -644,7 +644,7 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
             # reflect something close to the actual gradient scale.  This will be enough for it
             # to fully enforce the constraint.
-            err_rel_scale = 0.05
+            err_rel_scale = 0.25
             err_scale = err_rel_scale * (w_orig_grad.abs().mean(dim=(1,2), keepdim=True) /
                                          w_grad.abs().mean(dim=(1,2), keepdim=True))
             err_scale = torch.nan_to_num(err_scale, nan=0.0, posinf=0.0, neginf=0.0)
