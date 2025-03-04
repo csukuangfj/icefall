@@ -1188,7 +1188,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
             num_groups=num_heads,
             whitening_limit=_whitening_schedule(3.0),
             prob=(0.025, 0.25),
-            grad_scale=0.025,
+            grad_scale=1.0e-05,
         )
 
         # linear transformation for positional encoding.
