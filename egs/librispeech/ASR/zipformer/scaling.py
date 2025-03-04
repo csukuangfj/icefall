@@ -645,9 +645,10 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             # reflect something close to the actual gradient scale.  This will be enough for it
             # to fully enforce the constraint.
             err_rel_scale = 0.25
-            err_scale = err_rel_scale * (w_orig_grad.abs().mean(dim=(1,2), keepdim=True) /
-                                         w_grad.abs().mean(dim=(1,2), keepdim=True))
-            err_scale = torch.nan_to_num(err_scale, nan=0.0, posinf=0.0, neginf=0.0)
+            err_scale = ((err_rel_scale * w_orig_grad.abs().mean(dim=(1,2), keepdim=True)) /
+                         w_grad.abs().mean(dim=(1,2), keepdim=True) + eps)
+            # the 5000.0 is just a 'large scale' in case the division overflows in float16.
+            err_scale = torch.nan_to_num(err_scale, nan=0.0, posinf=5000.0, neginf=0.0)
 
             if do_print:
                 logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}, err_scale={err_scale.flatten()}")
