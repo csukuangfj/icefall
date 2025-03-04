@@ -939,9 +939,9 @@ class OrthogonalDownsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels * 2
         self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
-        # this is a learning-rate factor for non-residual components; lr_scale will be interpreted by
-        # get_parameter_groups_with_lrs().
-        self.proj.lr_scale = 0.75
+        # lr_scale is a learning-rate factor to slow down how fast self.proj is learned.
+        # it will be interpreted by get_parameter_groups_with_lrs()
+        self.proj.lr_scale = 0.8
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -984,9 +984,9 @@ class OrthogonalUpsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
-        # lr_scale is a learning-rate factor for non-residual components; it will be interpreted by
-        # get_parameter_groups_with_lrs()
-        self.proj.lr_scale = 0.75
+        # lr_scale is a learning-rate factor to slow down how fast self.proj is learned.
+        # it will be interpreted by get_parameter_groups_with_lrs()
+        self.proj.lr_scale = 0.8
 
     def forward(self, src: Tensor) -> Tensor:
         """

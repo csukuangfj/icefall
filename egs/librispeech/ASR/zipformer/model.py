@@ -131,18 +131,6 @@ class AsrModel(nn.Module):
         self.reconstruction_loss = torch.nn.SmoothL1Loss(reduction='none', beta=1.0)
 
 
-
-        # lr_scale is a learning-rate factor for non-residual components;
-        # it will be interpreted by get_parameter_groups_with_lrs()
-        for m in ['decoder', 'joiner', 'simple_am_proj', 'simple_lm_proj',
-                  'reconstruction_proj', 'ctc_output']:
-            try:
-                module = getattr(self, m)
-                module.lr_scale = 0.75
-            except AttributeError:  # e.g. use_ctc == False
-                pass
-
-
     def forward_encoder(
         self, x: torch.Tensor, x_lens: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:

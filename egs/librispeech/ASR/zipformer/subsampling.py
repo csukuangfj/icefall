@@ -221,11 +221,6 @@ class Conv2dSubsampling(nn.Module):
         self.out = ScaledLinear(self.out_width * layer3_channels, out_channels,
                                 initial_scale=4.0)
 
-        # conv.lr_scale and out.lr_scale are learning-rate factors for non-residual components;
-        # they will be interpreted by get_parameter_groups_with_lrs().
-        self.conv.lr_scale = 0.75
-        self.out.lr_scale = 0.75
-
         self.out_limiter = ScaleLimiter(max_scale=4.0)
 
         # use a larger than normal grad_scale on this whitening module; there is
