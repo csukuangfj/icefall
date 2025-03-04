@@ -497,7 +497,6 @@ def ScaledLinear(*args, initial_scale: float = 1.0, **kwargs) -> nn.Linear:
     with torch.no_grad():
         ans.weight[:] *= initial_scale
         if ans.bias is not None:
-            ans.bias[:] = 0.0
             torch.nn.init.uniform_(ans.bias, -0.01 * initial_scale, 0.01 * initial_scale)
     return ans
 
@@ -552,12 +551,13 @@ def ScaledConv2d(*args, initial_scale: float = 1.0, **kwargs) -> nn.Conv2d:
 class OrthogonalLinearFunction(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, x, weight, name, in_groups, out_groups):
+    def forward(ctx, x, weight, name, in_groups, out_groups, group_size):
         ctx.save_for_backward(x, weight)
         ctx.name = name
         ctx.out_groups = out_groups
         ctx.in_groups = in_groups
-        assert not (in_groups > 1 and out_groups > 1)
+        ctx.group_size = group_size
+        assert not (in_groups > 0 and out_groups > 0)
         return torch.matmul(x, weight.t())
 
     @staticmethod
@@ -570,19 +570,27 @@ class OrthogonalLinearFunction(torch.autograd.Function):
         else:
             x_grad = None
 
+
+        out_groups, in_groups, group_size = ctx.out_groups, ctx.in_groups, ctx.group_size
+
         if weight.requires_grad:
+
+
             weight_grad = torch.matmul(y_grad.reshape(-1, y_grad.shape[-1]).t(),
                                        x.reshape(-1, x.shape[-1]))
 
-            # now get extra gradient term that penalizes non-orthogonality.
-            # reshape weight to (groups, a, b) with a <= b (the latter is for efficiency)
-            if ctx.out_groups > 1:
-                w = weight.reshape(ctx.out_groups, -1, weight.shape[1])
-            elif ctx.in_groups > 1:
-                w = weight.reshape(weight.shape[0], ctx.in_groups, -1).transpose(0, 1)
+            # Now get extra gradient term that penalizes non-orthogonality.
+
+            # First get w which is of shape (num_groups, out_channels_per_group, in_channels_per_group)
+            if out_groups > 0:
+                w = weight[:out_groups*group_size].reshape(out_groups, group_size, weight.shape[1])
+            elif in_groups > 0:
+                w = weight[:, :in_groups*group_size].reshape(weight.shape[0], in_groups, group_size).transpose(0, 1)
             else:
                 w = weight.unsqueeze(0)
 
+            # Compute symmetric matrix-product prod with the smallest dimension
+            # possible given the shape of w.
             if (w.shape[1] > w.shape[2]):
                 prod = torch.matmul(w.transpose(1, 2), w)
             else:
@@ -618,22 +626,29 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             prod_deriv_diag = prod_diag # since prod_deriv shares memory with prod.
             prod_deriv_diag.add_(-inverse_alpha)  # modifies prod_deriv in place
 
-            # differentiate through computation of prod:
+            # manually differentiate backward through computation of prod:
             if w.shape[1] > w.shape[2]:
                 w_grad = torch.matmul(w, prod_deriv)
             else:
                 w_grad = torch.matmul(prod_deriv, w)
 
 
-            # now reshape back to weight_grad2 (call it weight_grad2 to distinguish
-            # from the gradient weight_grad that comes from the main loss)
-            if ctx.out_groups > 1:
-                weight_grad2 = w_grad.reshape(*weight.shape)
-            elif ctx.in_groups > 1:
-                weight_grad2 = w_grad.transpose(0, 1).reshape(*weight.shape)
+            # now manually differentiate backward through the expression that computed w in the
+            # if-elif-else statement above.
+            if out_groups > 0:
+                d = out_groups * group_size
+                weight_grad2 = w_grad.reshape(d, -1)
+                if d < weight.shape[0]:
+                    z = torch.zeros(weight.shape[0] - d, weight.shape[1], dtype=weight_grad2.dtype, device=weight_grad2.device)
+                    weight_grad2 = torch.cat((weight_grad2, z), dim=0)
+            elif in_groups > 0:
+                d = in_groups * group_size
+                weight_grad2 = w_grad.transpose(0, 1).reshape(weight.shape[0], d)
+                if d < weight.shape[1]:
+                    z = torch.zeros(weight.shape[0], weight.shape[1] - d, dtype=weight_grad2.dtype, device=weight_grad2.device)
+                    weight_grad2 = torch.cat((weight_grad2, z), dim=1)
             else:
                 weight_grad2 = w_grad.squeeze(0)
-
 
 
             # now scale weight_grad2 to have the same norm as weight grad: this will make sure
@@ -649,31 +664,73 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             weight_grad += err_scale * weight_grad2
         else:
             weight_grad = None
-        return x_grad, weight_grad, None, None, None
+        return x_grad, weight_grad, None, None, None, None
 
 
 
 class OrthogonalLinear(nn.Linear):
-    # penalty_scale does nothing, it is deprecated.
+    """
+    Like nn.Linear but can enforce that the weight matrix, or selected parts of it, is
+    orthogonal up to a scalar factor.  We are using a generalized definition of "orthogonal"
+    that applies to non-square matrix, i.e. that either M^T M or M M^T, whichever has
+    fewer rows/columns, should be equal to the identity times some positive scalar alpha.
+    (If M is square, these definitions are equivalent and is equivalent to the normal
+    definition of orthogonal).
+
+    Args:
+      in_channels: number of input channels
+     out_channels: number of output channels
+        in_groups: the number of groups on the input dimension, if specified
+                   the orthogonality-up-to-a-scalar-factor constraint will be
+                   applied separately per group, with different scalars.
+       out_groups: the number of groups on the output dimension; you cannot
+                   specify both this and in_groups with values >0.
+       group_size: the number of channels per group.  This provides a way
+                   to ensure that only part of the matrix is subject to the
+                   orthogonality constraint, e.g. if you specified in_groups>0,
+                   you can specify group_size
+                   such that in_groups * group_size < in_channels, and the
+                   remaining channels will be unconstrained.
+             bias: if True, include a bias term.
+     initial_scale: a factor that allows you to increase or decrease the
+                   initial scale of the weight (and bias, if present)
+
+    """
     # if in_groups or out_groups are set to >1, the orthogonal constraint
     # will be set per group.  both of them cannot be >1.
-    def __init__(self, in_channels: int, out_channels: int,
-                 in_groups: int = 1, out_groups: int = 1,
-                 bias: bool = True):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 in_groups: int = -1,
+                 out_groups: int = -1,
+                 group_size: int = -1,
+                 bias: bool = True,
+                 initial_scale: float = 1.0,
+    ):
         super().__init__(in_channels, out_channels, bias=bias)
         self.name = None
         self.in_groups = in_groups
         self.out_groups = out_groups
+        if in_groups > 0 and group_size == -1:
+            group_size = in_channels // in_groups
+        elif out_groups > 0 and group_size == -1:
+            group_size = out_channels // out_groups
+        self.group_size = group_size
 
+        # the same scaling as for ScaledLinear.
         with torch.no_grad():
-            # this is not orthogonal but should quickly become so.
-            self.weight[:] = torch.randn(out_channels, in_channels) * (in_channels ** -0.5)
+            self.weight[:] *= initial_scale
+        if self.bias is not None:
+            torch.nn.init.uniform_(self.bias, -0.01 * initial_scale, 0.01 * initial_scale)
+
 
     def forward(self, x: Tensor):
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             return torch.nn.functional.linear(x, self.weight, self.bias)
 
-        ans = OrthogonalLinearFunction.apply(x, self.weight, self.name, self.in_groups, self.out_groups)
+        ans = OrthogonalLinearFunction.apply(x, self.weight, self.name,
+                                             self.in_groups, self.out_groups,
+                                             self.group_size)
         if self.bias is not None:
             ans = ans + self.bias
         return ans

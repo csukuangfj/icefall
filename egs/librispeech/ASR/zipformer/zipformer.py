@@ -1175,8 +1175,13 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         # dividing it between the query and key.   Note: this module is intended
         # to be used with the ScaledAdam optimizer; with most other optimizers,
         # it would be necessary to apply the scaling factor in the forward function.
-        self.in_proj = ScaledLinear(
-            embed_dim, in_proj_dim, bias=True, initial_scale=query_head_dim**-0.25
+        # The OrthogonalLinear will make sure that the rows of the projection to each
+        # key will be orthogonal, while leaving the queries and position-queries
+        # unconstrained.
+        self.in_proj = OrthogonalLinear(
+            embed_dim, in_proj_dim,
+            out_groups=num_heads, group_size=key_head_dim,
+            bias=True, initial_scale=query_head_dim**-0.25
         )
 
         self.whiten_keys = Whiten(
@@ -1225,8 +1230,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         query_dim = query_head_dim * num_heads
 
         # self-attention
-        q = x[..., 0:query_dim]
-        k = x[..., query_dim : 2 * query_dim]
+        k = x[..., 0:query_dim]
+        q = x[..., query_dim : 2 * query_dim]
         # p is the position-encoding query
         p = x[..., 2 * query_dim :]
         assert p.shape[-1] == num_heads * pos_head_dim, (
@@ -1236,7 +1241,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         )
 
         q = self.copy_query(q)  # for diagnostics only, does nothing.
-        k = self.whiten_keys(k) # does nothing in the forward pass.
+        k = self.whiten_keys(k) # does nothing in the forward pass.   [this may not really be needed due to the orthogonality constraint.]
         p = self.copy_pos_query(p)  # for diagnostics only, does nothing.
 
         q = q.reshape(seq_len, batch_size, num_heads, query_head_dim)
