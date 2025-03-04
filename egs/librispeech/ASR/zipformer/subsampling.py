@@ -223,8 +223,8 @@ class Conv2dSubsampling(nn.Module):
 
         # conv.lr_scale and out.lr_scale are learning-rate factors for non-residual components;
         # they will be interpreted by get_parameter_groups_with_lrs().
-        self.conv.lr_scale = 0.5
-        self.out.lr_scale = 0.5
+        self.conv.lr_scale = 0.75
+        self.out.lr_scale = 0.75
 
         self.out_limiter = ScaleLimiter(max_scale=4.0)
 

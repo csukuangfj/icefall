@@ -138,7 +138,7 @@ class AsrModel(nn.Module):
                   'reconstruction_proj', 'ctc_output']:
             try:
                 module = getattr(self, m)
-                module.lr_scale = 0.5
+                module.lr_scale = 0.75
             except AttributeError:  # e.g. use_ctc == False
                 pass
 

@@ -945,7 +945,7 @@ class OrthogonalDownsample(torch.nn.Module):
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
         # this is a learning-rate factor for non-residual components; lr_scale will be interpreted by
         # get_parameter_groups_with_lrs().
-        self.proj.lr_scale = 0.5
+        self.proj.lr_scale = 0.75
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -994,7 +994,7 @@ class OrthogonalUpsample(torch.nn.Module):
         self.proj = OrthogonalLinear(proj_dim, penalty_scale=penalty_scale)
         # lr_scale is a learning-rate factor for non-residual components; it will be interpreted by
         # get_parameter_groups_with_lrs()
-        self.proj.lr_scale = 0.5
+        self.proj.lr_scale = 0.75
 
     def forward(self, src: Tensor) -> Tensor:
         """
