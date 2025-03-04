@@ -1229,8 +1229,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
 
         query_dim = query_head_dim * num_heads
 
-        ## self-attention
-        ## TODO: the keys have to be the leading dimension as we have orthogonality constraint on the keys.
+        # self-attention
+        # the keys have to come first as we have the orthogonality constraint on the keys.
         k = x[..., 0:query_dim]
         q = x[..., query_dim : 2 * query_dim]
         # p is the position-encoding query
