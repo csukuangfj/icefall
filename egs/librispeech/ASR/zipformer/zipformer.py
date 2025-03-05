@@ -1175,12 +1175,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         # dividing it between the query and key.   Note: this module is intended
         # to be used with the ScaledAdam optimizer; with most other optimizers,
         # it would be necessary to apply the scaling factor in the forward function.
-        # The OrthogonalLinear will make sure that the rows of the projection to each
-        # key will be orthogonal, while leaving the queries and position-queries
-        # unconstrained.
-        self.in_proj = OrthogonalLinear(
+        self.in_proj = ScaledLinear(
             embed_dim, in_proj_dim,
-            out_groups=num_heads, group_size=key_head_dim,
             bias=True, initial_scale=query_head_dim**-0.25
         )
 
@@ -1188,7 +1184,7 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
             num_groups=num_heads,
             whitening_limit=_whitening_schedule(3.0),
             prob=(0.025, 0.25),
-            grad_scale=1.0e-05,
+            grad_scale=0.025,
         )
 
         # linear transformation for positional encoding.
@@ -1230,9 +1226,8 @@ class RelPositionMultiheadAttentionWeights(nn.Module):
         query_dim = query_head_dim * num_heads
 
         # self-attention
-        # the keys have to come first as we have the orthogonality constraint on the keys.
-        k = x[..., 0:query_dim]
-        q = x[..., query_dim : 2 * query_dim]
+        q = x[..., 0:query_dim]
+        k = x[..., query_dim : 2 * query_dim]
         # p is the position-encoding query
         p = x[..., 2 * query_dim :]
         assert p.shape[-1] == num_heads * pos_head_dim, (
