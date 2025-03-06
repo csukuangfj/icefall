@@ -641,12 +641,10 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             # about the required magnitude without overwhelming the main loss.
             eps = torch.finfo(w_grad.dtype).tiny
 
-            # err_rel_scale is set less than one mostly so diagnostics about gradient scale will
-            # reflect something close to the actual gradient scale.  This will be enough for it
-            # to fully enforce the constraint.
-            err_rel_scale = 0.25
-            err_scale = ((err_rel_scale * w_orig_grad.abs().mean(dim=(1,2), keepdim=True)) /
-                         (w_grad.abs().mean(dim=(1,2), keepdim=True) + eps))
+            # err_rel_scale is the scale of the orthogonality loss function relative to the
+            # average scale of the "main" gradient term.
+            err_rel_scale = 1000.0
+            err_scale = err_rel_scale * w_orig_grad.abs().mean(dim=(1,2), keepdim=True)
 
             if do_print:
                 logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}, err_scale={err_scale.flatten()}")
