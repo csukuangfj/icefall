@@ -728,7 +728,7 @@ class OrthogonalLinear(nn.Linear):
 
         # the same scaling as for ScaledLinear.
         with torch.no_grad():
-            self.weight[:] *= initial_scale
+            self.weight[:] = torch.randn(out_channels, in_channels) * (in_channels ** -0.5) * initial_scale
         if self.bias is not None:
             torch.nn.init.uniform_(self.bias, -0.01 * initial_scale, 0.01 * initial_scale)
 
