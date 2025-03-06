@@ -453,7 +453,7 @@ class BiasNorm(torch.nn.Module):
         super(BiasNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
-        self.scale = nn.Parameter(torch.tensor(1.5))
+        self.scale = nn.Parameter(torch.tensor(2.0))
 
         self.name = None
 
