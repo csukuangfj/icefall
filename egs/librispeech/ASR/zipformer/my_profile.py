@@ -26,7 +26,7 @@ from typing import Tuple
 
 import sentencepiece as spm
 import torch
-from scaling import BiasNorm
+from scaling import ExpNorm
 from torch import Tensor, nn
 from train import (
     add_model_arguments,
@@ -81,7 +81,7 @@ def _bypass_module_flops_compute(module, input, output):
 
 
 MODULE_HOOK_MAPPING = {
-    BiasNorm: _bias_norm_flops_compute,
+    ExpNorm: _bias_norm_flops_compute,
     BypassModule: _bypass_module_flops_compute,
 }
 

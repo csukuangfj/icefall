@@ -24,7 +24,7 @@ from scaling import (
     Balancer,
     ScaleLimiter,
     ScaledLinear,
-    BiasNorm,
+    ExpNorm,
     Dropout3,
     FloatLike,
     Optional,
@@ -235,7 +235,7 @@ class Conv2dSubsampling(nn.Module):
 
         # max_log_eps=0.0 is to prevent both eps and the output of self.out from
         # getting large, there is an unnecessary degree of freedom.
-        self.out_norm = BiasNorm(out_channels)
+        self.out_norm = ExpNorm(out_channels)
         self.dropout = Dropout3(dropout, shared_dim=1)
 
     def forward(

@@ -366,7 +366,7 @@ class MaxEigLimiterFunction(torch.autograd.Function):
 
 def _exp_norm(x: Tensor, scale: Tensor, channel_dim: int):
     x_norm = torch.mean(x ** 2, dim=channel_dim, keepdim=True).sqrt()
-    scales = (1. - (-x_norm).exp()) / x_norm   # torch.log1p(x_norm) / x_norm
+    scales = (1. - (-x_norm).exp()) / x_norm
     scales = scale * scales
     return (x * scales)
 
@@ -415,24 +415,25 @@ class ExpNormFunction(torch.autograd.Function):
 
 
 
-class BiasNorm(torch.nn.Module):
+class ExpNorm(torch.nn.Module):
     """
-    Comment not up-to-date.  This is ExpNorm. Will change docs later if
-    promising.
-
     This is intended to be a simpler, and hopefully cheaper, replacement for
-    LayerNorm.  The observation this is based on, is that Transformer-type
-    networks, especially with pre-norm, sometimes seem to set one of the
-    feature dimensions to a large constant value (e.g. 50), which "defeats"
-    the LayerNorm because the output magnitude is then not strongly dependent
-    on the other (useful) features.  Presumably the weight and bias of the
-    LayerNorm are required to allow it to do this.
+    LayerNorm, without the learned weight or bias.  There is just one learned
+    parameter, a scalar, which is a scale on the output; and it is limited
+    during training to the range [0.5..2.5].
 
-    Instead, we give the BiasNorm a trainable bias that it can use when
-    computing the scale for normalization, in addition to a separate trainable
-    "eps" parameter, learned in log-space.  We also give it a (scalar)
-    trainable scale on the output.
+    Unlike LayerNorm it does not pick the scale that maps any rms value at the
+    input to an rms value of 1 at the output, i.e. the function f(x) = 1 (which
+    discards the length information); instead, it uses the function:
+      f(x) = scale * (1 - (-x).exp()),
+    i.e. if the input rms value was x, it gets mapped to the f(x) above.  The
+    implementation is just:
 
+      x_norm = torch.mean(x ** 2, dim=channel_dim, keepdim=True).sqrt()
+      scales = (1. - (-x_norm).exp()) / x_norm
+      return (x * scale * scales)
+
+    where 'scale' is a scalar, and the only learned parameter.
 
     Args:
        num_channels: the number of channels, e.g. 512.
@@ -440,20 +441,16 @@ class BiasNorm(torch.nn.Module):
          interpreted as an offset from the input's ndim if negative.
          This is NOT the num_channels; it should typically be one of
          {-2, -1, 0, 1, 2, 3}.
-      log_scale: the initial log-scale that we multiply the output by; this
-         is learnable.
-      log_scale_min: FloatLike, minimum allowed value of log_scale
-      log_scale_max: FloatLike, maximum allowed value of log_scale
     """
     def __init__(
         self,
         num_channels: int,
         channel_dim: int = -1,  # CAUTION: see documentation.
     ) -> None:
-        super(BiasNorm, self).__init__()
+        super(ExpNorm, self).__init__()
         self.num_channels = num_channels
         self.channel_dim = channel_dim
-        self.scale = nn.Parameter(torch.tensor(2.0))
+        self.scale = nn.Parameter(torch.tensor(1.7))
 
         self.name = None
 

@@ -31,7 +31,7 @@ from scaling import (
     ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
     ScaleLimiter,
     ActivationDropoutAndLinear,
-    BiasNorm,
+    ExpNorm,
     ChunkCausalDepthwiseConv1d,
     Dropout2,
     FloatLike,
@@ -522,7 +522,7 @@ class Zipformer2EncoderLayer(nn.Module):
 
         self.scale_limiter = ScaleLimiter(max_scale=2.0)
 
-        self.norm = BiasNorm(embed_dim)
+        self.norm = ExpNorm(embed_dim)
 
 
     def forward(
@@ -939,6 +939,9 @@ class OrthogonalDownsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels * 2
         self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
+        # lr_scale is a learning-rate factor to slow down how fast self.proj is learned.
+        # it will be interpreted by get_parameter_groups_with_lrs()
+        self.proj.lr_scale = 0.75
         self.causal = causal
 
     def forward(self, src: Tensor) -> Tensor:
@@ -981,6 +984,9 @@ class OrthogonalUpsample(torch.nn.Module):
         super().__init__()
         assert proj_dim <= channels
         self.proj = OrthogonalLinear(proj_dim, proj_dim, bias=False)
+        # lr_scale is a learning-rate factor to slow down how fast self.proj is learned.
+        # it will be interpreted by get_parameter_groups_with_lrs()
+        self.proj.lr_scale = 0.75
 
 
     def forward(self, src: Tensor) -> Tensor:
