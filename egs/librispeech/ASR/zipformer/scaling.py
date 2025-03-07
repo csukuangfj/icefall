@@ -577,98 +577,69 @@ class OrthogonalLinearFunction(torch.autograd.Function):
             weight_grad = torch.matmul(y_grad.reshape(-1, y_grad.shape[-1]).t(),
                                        x.reshape(-1, x.shape[-1]))
 
-            # Now get extra gradient term that penalizes non-orthogonality.
+            penalty_scale = 1000.0 * weight_grad.abs().mean()
 
-            # First get w which is of shape (num_groups, out_channels_per_group, in_channels_per_group)
-            if out_groups > 0:
-                func = lambda x: x[:out_groups*group_size].reshape(out_groups, group_size, x.shape[1])
-            elif in_groups > 0:
-                func = lambda x: x[:, :in_groups*group_size].reshape(x.shape[0], in_groups, group_size).transpose(0, 1)
-            else:
-                func = lambda x: x.unsqueeze(0)
-            w = func(weight)
-            w_orig_grad = func(weight_grad)
+            with torch.enable_grad():
+                weight = weight.detach()
+                weight.requires_grad = True
 
-            # Compute symmetric matrix-product prod with the smallest dimension
-            # possible given the shape of w.
-            if (w.shape[1] > w.shape[2]):
-                prod = torch.matmul(w.transpose(1, 2), w)
-            else:
-                prod = torch.matmul(w, w.transpose(1, 2))
+                # Get extra gradient term that penalizes non-orthogonality.
 
-            # we'll try to enforce that for any i, prod[i] is any constant times the identity.
-
-            # in the loss-function:
-            #  orthognonality_loss = ((prod * alpha - I) ** 2).sum(),
-            # the following formula gives the alpha that means d(err)/d(scale-of-prod) will be zero.
-            # alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
-            # we actually need 1/alpha:
-
-            # note, prod_diag shares memory with prod, this will matter later on.
-            (groups, r, c) = prod.shape
-            (groups_stride, r_stride, c_stride) = prod.stride()
-            prod_diag = torch.as_strided(prod, size=(groups, r), stride=(groups_stride, r_stride+c_stride))
-            # inverse_alpha: (groups, 1)
-            inverse_alpha = (prod ** 2).sum(dim=2).mean(dim=1, keepdim=True) / prod_diag.mean(dim=1, keepdim=True)
-
-            do_print = random.random() < 0.005
-            if do_print:
-                eye = torch.eye(prod.shape[1], device=prod.device, dtype=prod.dtype).unsqueeze(0)
-                loss = ((prod / inverse_alpha.unsqueeze(-1) - eye) ** 2).mean(dim=(1,2)) * prod.shape[1]
-
-            # OK, imagining:
-            # err = 0.5 * ((prod ** 2).sum() * (alpha ** 2)
-            #             - 2 * alpha * prod.diag().sum()
-            #              = prod.shape[0])
-            # do d(err)/d(prod) =  (alpha**2) * prod - alpha * I
-            #... and we'll be normalizing out any scalar factor anyway, so by dividing
-            # by alpha**2 we can treat it as:
-            #  d(err)/d(prod) =   prod - I / alpha
-            prod_deriv = prod
-            prod_deriv_diag = prod_diag # since prod_deriv shares memory with prod.
-            prod_deriv_diag.add_(-inverse_alpha)  # modifies prod_deriv in place
-
-            # manually differentiate backward through computation of prod:
-            if w.shape[1] > w.shape[2]:
-                w_grad = torch.matmul(w, prod_deriv)
-            else:
-                w_grad = torch.matmul(prod_deriv, w)
+                # First get w which is of shape (num_groups, out_channels_per_group, in_channels_per_group)
+                if out_groups > 0:
+                    w = weight[:out_groups*group_size].reshape(out_groups, group_size, weight.shape[1])
+                elif in_groups > 0:
+                    w = weight[:, :in_groups*group_size].reshape(weight.shape[0], in_groups, group_size).transpose(0, 1)
+                else:
+                    w = weight.unsqueeze(0)
 
 
-            # we want to scale w_grad to have the same average element absolute-value
-            # as err_rel_scale times the average absolute-value in the
-            # corresponding part of weight_grad: this will make sure it has
-            # about the required magnitude without overwhelming the main loss.
-            eps = torch.finfo(w_grad.dtype).tiny
+                # Compute symmetric matrix-product prod with the smallest
+                # dimension possible given the shape of w.  This is not just for
+                # efficiency; if we computed it the wrong way round, the product
+                # would have deficient rank and could never be the identity.
+                if (w.shape[1] > w.shape[2]):
+                    prod = torch.matmul(w.transpose(1, 2), w)
+                else:
+                    prod = torch.matmul(w, w.transpose(1, 2))
 
-            # err_rel_scale is the scale of the orthogonality loss function relative to the
-            # average scale of the "main" gradient term.
-            err_rel_scale = 1000.0
-            err_scale = err_rel_scale * w_orig_grad.abs().mean(dim=(1,2), keepdim=True)
+                # we'll try to enforce that for any i, prod[i] is any constant times the identity.
 
-            if do_print:
-                logging.info(f"OrthogonalLinear: name={ctx.name}, scale={inverse_alpha.sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}, err_scale={err_scale.flatten()}")
+                # in the loss-function:
+                #  orthogonality_loss = ((prod * alpha - I) ** 2).sum(),
+                # the following formula gives the alpha that means d(err)/d(scale-of-prod) will be zero.
+                # alpha = prod.diag().mean() / (prod ** 2).sum(dim=1).mean(dim=0)
 
-            w_grad = w_grad * err_scale
+                # note, prod_diag shares memory with prod, this will matter later on.
+                (groups, r, c) = prod.shape
+                (groups_stride, r_stride, c_stride) = prod.stride()
 
-            # now manually differentiate backward through the expression that computed w in the
-            # if-elif-else statement above.
-            if out_groups > 0:
-                d = out_groups * group_size
-                weight_grad2 = w_grad.reshape(d, -1)
-                if d < weight.shape[0]:
-                    z = torch.zeros(weight.shape[0] - d, weight.shape[1], dtype=weight_grad2.dtype, device=weight_grad2.device)
-                    weight_grad2 = torch.cat((weight_grad2, z), dim=0)
-            elif in_groups > 0:
-                d = in_groups * group_size
-                weight_grad2 = w_grad.transpose(0, 1).reshape(weight.shape[0], d)
-                if d < weight.shape[1]:
-                    z = torch.zeros(weight.shape[0], weight.shape[1] - d, dtype=weight_grad2.dtype, device=weight_grad2.device)
-                    weight_grad2 = torch.cat((weight_grad2, z), dim=1)
-            else:
-                weight_grad2 = w_grad.squeeze(0)
+                def diag_inplace(z):
+                    return torch.as_strided(z, size=(groups, r), stride=(groups_stride, r_stride+c_stride))
 
-            weight_grad.add_(weight_grad2)
+                with torch.no_grad():
+                    # alpha: (groups, 1)
+                    alpha = (diag_inplace(prod).mean(dim=1, keepdim=True) /
+                             (prod ** 2).sum(dim=2).mean(dim=1, keepdim=True))
+
+                prod *= alpha.unsqueeze(-1)
+                diag_inplace(prod)[:] -= 1.
+
+                # that loss that we want to backprop would be 0.5 * (prod **
+                # 2).sum() * penalty_scale.  we can backprop this without doing
+                # any reductions as follows:
+                prod.backward(gradient=prod * penalty_scale)
+
+
+                do_print = random.random() < 0.005
+                if do_print:
+                    # we print a normalized version of the loss, by dividing by the
+                    # number of rows.
+                    loss = (prod ** 2).mean(dim=(1,2)) * prod.shape[1]
+                    logging.info(f"OrthogonalLinear: name={ctx.name}, scale={(1. / alpha).sqrt().cpu().flatten()}, loss={loss.cpu().flatten()}, penalty_scale={penalty_scale}")
+
+                # add the extra gradient term from the orthogonality loss.
+                weight_grad += weight.grad
         else:
             weight_grad = None
         return x_grad, weight_grad, None, None, None, None
