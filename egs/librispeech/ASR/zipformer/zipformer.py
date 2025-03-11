@@ -730,6 +730,7 @@ class Zipformer2Encoder(nn.Module):
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
         )
         self.num_layers = num_layers
+        self.copy_bypass = nn.Identity()  # in case we are dumping diagnostics.
 
         self.whiten = Whiten(
             num_groups=1,
@@ -783,6 +784,7 @@ class Zipformer2Encoder(nn.Module):
         src = self.whiten(src)
 
         if num_channels > layer_dim:
+            bypass = self.copy_bypass(bypass)
             src = torch.cat((src, bypass), dim=-1)
 
         return src
