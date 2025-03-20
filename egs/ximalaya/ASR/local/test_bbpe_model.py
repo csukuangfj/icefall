@@ -10,11 +10,13 @@ def main():
     sp.load(model_file)
     text = "你好世界丹尼尔"
     text = tokenize_by_CJK_char(text)
-    print(text)  # 你 好
+    print(text)  # 你 好 世 界 丹 尼 尔
     text = byte_encode(text)
-    print(text)
+    print(text)  # ƋţŅ ƌŋţ ƋŞĹ Ǝĸĭ ƋŞş ƌŖŢ ƌŖķ
     tokens = sp.encode_as_pieces(text)
-    print(tokens)
+    print(
+        tokens
+    )  # ['▁ƋţŅ', '▁ƌŋţ', '▁ƋŞĹ', '▁Ǝĸĭ', '▁', 'Ƌ', 'Ş', 'ş', '▁ƌ', 'Ŗ', 'Ţ', '▁ƌ', 'Ŗ', 'ķ']
 
 
 if __name__ == "__main__":
