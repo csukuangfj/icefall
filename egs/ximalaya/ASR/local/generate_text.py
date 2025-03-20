@@ -31,7 +31,7 @@ def process_dataset(name):
     )
     files = glob.glob(str(cut_dir / name / "*.jsonl.gz"))
 
-    num_jobs = 20
+    num_jobs = 50
 
     if len(files) == 0:
         logging.warning(f"Skip {name} since there are no manifest files")
@@ -55,6 +55,10 @@ def process_dataset(name):
 
 
 def main():
+    Path("data").mkdir(exist_ok=True)
+    if Path("data/text").is_file():
+        logging.warning("data/text exists - skip")
+        return
     names_file = "/mnt/data-ssd/user/omni/fj/open-source/large-dataset/names.txt"
     names = []
     with open(names_file) as f:
@@ -67,9 +71,9 @@ def main():
     for i, name in enumerate(names):
         logging.warning(f"Processing {name}, {i}/{len(names)}")
         this_text_list = process_dataset(name)
-        text_list += this_text_list
+        if this_text_list is not None:
+            text_list += this_text_list
 
-    Path("data").mkdir(exist_ok=True)
     with open("./data/text", "w", encoding="utf-8") as f:
         for text in text_list:
             f.write(f"{text}\n")
