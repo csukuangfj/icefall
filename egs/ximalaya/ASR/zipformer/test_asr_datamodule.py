@@ -10,7 +10,7 @@ from asr_datamodule import XimalayaAsrDataModule
 
 def test_generate_filenames():
     names = glob.glob(
-        "/mnt/bos-multimodal/multi-modal/audio/NGK/data/ximalaya/wer/0.1/cutset/*"
+        "/mnt/bos-multimodal/multi-modal/audio/NGK/data2/ximalaya/wer/0.1/cutset/*"
     )
     cut_set_filenames = []
     for n in names:
@@ -21,6 +21,7 @@ def test_generate_filenames():
             f.write(f"{n}\n")
 
     random.shuffle(cut_set_filenames)
+    print(f"len(cut_set_filenames)")
 
     cut_set_filenames = cut_set_filenames[:400]
     with open("cutset-random-400.txt", "w") as f:
@@ -51,16 +52,16 @@ def test_valid():
 
 def test_test():
     m = XimalayaAsrDataModule(None)
-    test = m.test_cuts()
+    test = m.test_cuts().subset(first=100)
     print(test)
 
 
 def main():
     print("started")
-    #  test_generate_filenames()
+    test_generate_filenames()
     #  test_train()
-    test_valid()
-    test_test()
+    #  test_valid()
+    #  test_test()
 
 
 if __name__ == "__main__":

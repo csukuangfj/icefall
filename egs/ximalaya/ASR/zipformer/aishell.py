@@ -17,14 +17,12 @@
 
 
 import argparse
-import glob
 import inspect
 import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import lhotse
 from lhotse import CutSet, Fbank, FbankConfig, load_manifest, load_manifest_lazy
 from lhotse.dataset import (
     CutConcatenate,
@@ -41,7 +39,7 @@ from torch.utils.data import DataLoader
 from icefall.utils import str2bool
 
 
-class XimalayaAsrDataModule:
+class AishellAsrDataModule:
     """
     DataModule for k2 ASR experiments.
     It assumes there is always one train and valid dataloader,
@@ -328,9 +326,6 @@ class XimalayaAsrDataModule:
         valid_sampler = DynamicBucketingSampler(
             cuts_valid,
             max_duration=self.args.max_duration,
-            num_buckets=self.args.num_buckets,
-            buffer_size=self.args.num_buckets * 2000,
-            shuffle_buffer_size=self.args.num_buckets * 5000,
             shuffle=False,
         )
         logging.info("About to create dev dataloader")
@@ -338,7 +333,7 @@ class XimalayaAsrDataModule:
             validate,
             sampler=valid_sampler,
             batch_size=None,
-            num_workers=self.args.num_workers,
+            num_workers=2,
             persistent_workers=False,
         )
 
@@ -368,30 +363,17 @@ class XimalayaAsrDataModule:
     @lru_cache()
     def train_cuts(self) -> CutSet:
         logging.info("About to get train cuts")
-        files = []
-        with open("./cutset-random-400.txt") as f:
-            for line in f:
-                line = line.strip()
-                files.append(line)
-
-        cuts_train = lhotse.combine(lhotse.load_manifest_lazy(p) for p in files)
-
+        cuts_train = load_manifest_lazy(
+            self.args.manifest_dir / "aishell_cuts_train.jsonl.gz"
+        )
         return cuts_train
 
     @lru_cache()
     def valid_cuts(self) -> CutSet:
         logging.info("About to get dev cuts")
-
-        filenames = glob.glob(
-            "/mnt/bos-multimodal/multi-modal/audio/NGK/data/ximalaya/wer/0.1/val-cutset/*/*.jsonl.gz"
-        )
-        cuts_valid = lhotse.combine(lhotse.load_manifest_lazy(p) for p in filenames)
-
-        return cuts_valid
+        return load_manifest_lazy(self.args.manifest_dir / "aishell_cuts_dev.jsonl.gz")
 
     @lru_cache()
     def test_cuts(self) -> List[CutSet]:
         logging.info("About to get test cuts")
-        return load_manifest_lazy(
-            "/mnt/bos-multimodal/multi-modal/audio/NGK/data2/ximalaya/wer/0.1/cutset/business_01/business_01.00000064.jsonl.gz"
-        )
+        return load_manifest_lazy(self.args.manifest_dir / "aishell_cuts_test.jsonl.gz")

@@ -48,6 +48,8 @@ import argparse
 import copy
 import logging
 import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -397,13 +399,17 @@ def compute_validation_loss(
     tot_loss = MetricsTracker()
 
     for batch_idx, batch in enumerate(valid_dl):
-        loss, loss_info = compute_loss(
+        try:
+            loss, loss_info = compute_loss(
             params=params,
             model=model,
             sp=sp,
             batch=batch,
             is_training=False,
         )
+        except:  # noqa
+            display_and_save_batch(batch, params=params, sp=sp)
+            raise
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
@@ -721,7 +727,7 @@ def run(rank, world_size, args):
     ximalaya = XimalayaAsrDataModule(args)
 
     train_cuts = ximalaya.train_cuts()
-    valid_cuts = ximalaya.valid_cuts()
+    valid_cuts = ximalaya.test_cuts().subset(first=2000)
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 15 seconds
@@ -748,6 +754,7 @@ def run(rank, world_size, args):
         tokens = sp.encode(c.supervisions[0].text, out_type=str)
 
         if T < len(tokens):
+            return False
             logging.warning(
                 f"Exclude cut with ID {c.id} from training. "
                 f"Number of frames (before subsampling): {c.num_frames}. "
@@ -761,17 +768,18 @@ def run(rank, world_size, args):
         return True
 
     def tokenize_and_encode_text(c: Cut):
+        c.supervisions = [c.supervisions[0]]
         # Text normalize for each sample
         text = c.supervisions[0].text
         text = byte_encode(tokenize_by_CJK_char(text))
         c.supervisions[0].text = text
         return c
 
-    train_cuts = train_cuts.filter(remove_short_and_long_utt)
-
     train_cuts = train_cuts.map(tokenize_and_encode_text)
-
     valid_cuts = valid_cuts.map(tokenize_and_encode_text)
+
+    train_cuts = train_cuts.filter(remove_short_and_long_utt)
+    valid_cuts = valid_cuts.filter(remove_short_and_long_utt)
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
@@ -794,6 +802,7 @@ def run(rank, world_size, args):
             sp=sp,
             params=params,
         )
+    logging.warning("Started")
 
     scaler = GradScaler(enabled=params.use_fp16, init_scale=1.0)
     if checkpoints and "grad_scaler" in checkpoints:
@@ -801,6 +810,7 @@ def run(rank, world_size, args):
         scaler.load_state_dict(checkpoints["grad_scaler"])
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
+        logging.warning(f"epoch: {epoch}")
         scheduler.step_epoch(epoch - 1)
         fix_random_seed(params.seed + epoch - 1)
         train_dl.sampler.set_epoch(epoch - 1)
@@ -935,8 +945,8 @@ def main():
         run(rank=0, world_size=1, args=args)
 
 
-torch.set_num_threads(1)
-torch.set_num_interop_threads(1)
-
 if __name__ == "__main__":
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+
     main()
