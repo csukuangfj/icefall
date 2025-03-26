@@ -48,7 +48,8 @@ import argparse
 import copy
 import logging
 import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 from pathlib import Path
 from typing import Optional, Tuple, Union
@@ -401,12 +402,12 @@ def compute_validation_loss(
     for batch_idx, batch in enumerate(valid_dl):
         try:
             loss, loss_info = compute_loss(
-            params=params,
-            model=model,
-            sp=sp,
-            batch=batch,
-            is_training=False,
-        )
+                params=params,
+                model=model,
+                sp=sp,
+                batch=batch,
+                is_training=False,
+            )
         except:  # noqa
             display_and_save_batch(batch, params=params, sp=sp)
             raise

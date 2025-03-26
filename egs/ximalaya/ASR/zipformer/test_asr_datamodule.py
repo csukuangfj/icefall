@@ -15,15 +15,15 @@ def test_generate_filenames():
     cut_set_filenames = []
     for n in names:
         cut_set_filenames += glob.glob(f"{n}/*")
-        print(len(cut_set_filenames))
+
+    random.shuffle(cut_set_filenames)
     with open("cutset-all.txt", "w") as f:
         for n in cut_set_filenames:
             f.write(f"{n}\n")
 
-    random.shuffle(cut_set_filenames)
-    print(f"len(cut_set_filenames)")
+    print(f"{len(cut_set_filenames)}")
 
-    cut_set_filenames = cut_set_filenames[:400]
+    cut_set_filenames = cut_set_filenames[:800]
     with open("cutset-random-400.txt", "w") as f:
         for n in cut_set_filenames:
             f.write(f"{n}\n")

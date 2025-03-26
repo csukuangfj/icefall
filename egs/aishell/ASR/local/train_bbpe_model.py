@@ -79,6 +79,7 @@ def main():
         return
 
     character_coverage = 1.0
+
     input_sentence_size = 100000000
 
     user_defined_symbols = ["<blk>", "<sos/eos>"]
@@ -103,6 +104,7 @@ def main():
         unk_id=unk_id,
         bos_id=-1,
         eos_id=-1,
+        train_extremely_large_corpus=True,
     )
 
     shutil.copyfile(model_file, f"{lang_dir}/bbpe.model")
