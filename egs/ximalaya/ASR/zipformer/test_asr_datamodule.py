@@ -8,23 +8,23 @@ import time
 from asr_datamodule import XimalayaAsrDataModule
 
 
-def test_generate_filenames():
+def test_generate_filenames(wer="0.1"):
     names = glob.glob(
-        "/mnt/bos-multimodal/multi-modal/audio/NGK/data2/ximalaya/wer/0.1/cutset/*"
+        f"/mnt/bos-multimodal/multi-modal/audio/NGK/data2/ximalaya/wer/{wer}/cutset/*"
     )
     cut_set_filenames = []
     for n in names:
         cut_set_filenames += glob.glob(f"{n}/*")
 
     random.shuffle(cut_set_filenames)
-    with open("cutset-all.txt", "w") as f:
+    with open(f"cutset-all-{wer}.txt", "w") as f:
         for n in cut_set_filenames:
             f.write(f"{n}\n")
 
     print(f"{len(cut_set_filenames)}")
 
     cut_set_filenames = cut_set_filenames[:800]
-    with open("cutset-random-400.txt", "w") as f:
+    with open(f"cutset-random-800-{wer}.txt", "w") as f:
         for n in cut_set_filenames:
             f.write(f"{n}\n")
 
@@ -58,7 +58,7 @@ def test_test():
 
 def main():
     print("started")
-    test_generate_filenames()
+    test_generate_filenames(wer="0.3")
     #  test_train()
     #  test_valid()
     #  test_test()

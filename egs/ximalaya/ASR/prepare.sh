@@ -12,9 +12,10 @@ stop_stage=11
 . shared/parse_options.sh || exit 1
 
 vocab_sizes=(
-  2000
-  1000
-  500
+  4096
+  # 2000
+  # 1000
+  # 500
 )
 
 

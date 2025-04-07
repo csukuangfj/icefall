@@ -108,6 +108,7 @@ Usage:
 """
 
 import warnings
+
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 import argparse
@@ -127,7 +128,7 @@ from lhotse import set_caching_enabled
 from train_bbpe_cr_ctc import add_model_arguments, get_model, get_params
 from lhotse.cut import Cut
 
-from icefall import byte_encode, smart_byte_decode, tokenize_by_CJK_char
+from icefall import smart_byte_decode
 from icefall.checkpoint import (
     average_checkpoints,
     average_checkpoints_with_averaged_model,
@@ -1150,6 +1151,7 @@ def main():
     # we need cut ids to display recognition results.
     args.return_cuts = True
     aishell = AishellAsrDataModule(args)
+
     def remove_short_utt(c: Cut):
         T = ((c.num_frames - 7) // 2 + 1) // 2
         if T <= 0:
@@ -1157,6 +1159,7 @@ def main():
                 f"Exclude cut with ID {c.id} from decoding, num_frames : {c.num_frames}."
             )
         return T > 0
+
     dev_cuts = aishell.valid_cuts()
     dev_cuts = dev_cuts.filter(remove_short_utt)
     dev_dl = aishell.valid_dataloaders(dev_cuts)
