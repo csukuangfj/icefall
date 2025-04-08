@@ -56,6 +56,8 @@ import argparse
 import copy
 import logging
 import warnings
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
@@ -66,7 +68,6 @@ import sentencepiece as spm
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
-from asr_datamodule import LibriSpeechAsrDataModule
 from attention_decoder import AttentionDecoderModel
 from decoder import Decoder
 from joiner import Joiner
@@ -82,9 +83,10 @@ from torch import Tensor
 from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
+from ximalaya import XimalayaAsrDataModule
 from zipformer import Zipformer2
 
-from icefall import diagnostics
+from icefall import byte_encode, diagnostics
 from icefall.checkpoint import load_checkpoint, remove_checkpoints
 from icefall.checkpoint import save_checkpoint as save_checkpoint_impl
 from icefall.checkpoint import (
@@ -101,6 +103,7 @@ from icefall.utils import (
     get_parameter_groups_with_lrs,
     setup_logger,
     str2bool,
+    tokenize_by_CJK_char,
 )
 
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
@@ -362,7 +365,7 @@ def get_parser():
         default=10,
         help="""If positive, the interval at which we write various stats to the tensorboard, potentially useful for
         finding parts of the network that are diverging or not well trained.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -371,7 +374,7 @@ def get_parser():
         default=0,
         help="""If positive, and if debug-interval > 0 the interval at which we dump debug statistics; they
         are accumulated at batches with period debug_interval.  Should be at least 256 times --debug-interval.
-        """
+        """,
     )
 
     parser.add_argument(
@@ -518,7 +521,7 @@ def get_parser():
     parser.add_argument(
         "--save-every-n",
         type=int,
-        default=4000,
+        default=1000,
         help="""Save checkpoint after processing this number of batches"
         periodically. We save checkpoint to exp-dir/ whenever
         params.batch_idx_train % save_every_n == 0. The checkpoint filename
@@ -652,7 +655,8 @@ def get_encoder_embed(params: AttributeDict) -> nn.Module:
     output_downsampling_factor = 2
     encoder_embed = Conv2dSubsampling(
         in_channels=params.feature_dim,
-        out_channels=max(_to_int_tuple(params.encoder_dim)) // output_downsampling_factor,
+        out_channels=max(_to_int_tuple(params.encoder_dim))
+        // output_downsampling_factor,
         dropout=ScheduledFloat((0.0, 0.3), (20000.0, 0.1)),
     )
     return encoder_embed
@@ -947,7 +951,14 @@ def compute_loss(
         supervision_segments = None
 
     with torch.set_grad_enabled(is_training):
-        simple_loss, pruned_loss, ctc_loss, attention_decoder_loss, cr_loss, reconstruction_loss = model(
+        (
+            simple_loss,
+            pruned_loss,
+            ctc_loss,
+            attention_decoder_loss,
+            cr_loss,
+            reconstruction_loss,
+        ) = model(
             x=feature,
             x_lens=feature_lens,
             y=y,
@@ -984,8 +995,9 @@ def compute_loss(
             if use_cr_ctc:
                 loss += params.cr_loss_scale * cr_loss
 
-        reconstruction_loss_scale = (params.reconstruction_loss_scale *
-                                     max(1.0, 2.0 - 1.0 * (batch_idx_train / warm_step)))
+        reconstruction_loss_scale = params.reconstruction_loss_scale * max(
+            1.0, 2.0 - 1.0 * (batch_idx_train / warm_step)
+        )
 
         loss += reconstruction_loss_scale * reconstruction_loss
 
@@ -1208,9 +1220,14 @@ def train_one_epoch(
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
             # behavior depending on the current grad scale.
-            if (batch_idx % 25 == 0 and cur_grad_scale < 2.0 or
-                batch_idx % 100 == 0 and cur_grad_scale < 8.0 or
-                batch_idx % 400 == 0 and cur_grad_scale < 32.0):
+            if (
+                batch_idx % 25 == 0
+                and cur_grad_scale < 2.0
+                or batch_idx % 100 == 0
+                and cur_grad_scale < 8.0
+                or batch_idx % 400 == 0
+                and cur_grad_scale < 32.0
+            ):
                 scaler.update(cur_grad_scale * 2.0)
 
         if batch_idx % params.log_interval == 0:
@@ -1258,7 +1275,11 @@ def train_one_epoch(
                     tb_writer, "train/valid_", params.batch_idx_train
                 )
 
-        if params.batch_idx_train > 0 and params.dump_debug_interval > 0 and params.batch_idx_train % params.dump_debug_interval == 0:
+        if (
+            params.batch_idx_train > 0
+            and params.dump_debug_interval > 0
+            and params.batch_idx_train % params.dump_debug_interval == 0
+        ):
             optimizer.write_debug_info(summary_writer=tb_writer)
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
@@ -1297,8 +1318,9 @@ def run(rank, world_size, args):
         # If we make the max_queue large enough to include all the events from calling
         # "optimizer.write_debug_info(), we can continue with training and let the
         # background thread take care of dumping those events at its own speed.
-        tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard",
-                                  max_queue=100)
+        tb_writer = SummaryWriter(
+            log_dir=f"{params.exp_dir}/tensorboard", max_queue=100
+        )
     else:
         tb_writer = None
 
@@ -1336,7 +1358,7 @@ def run(rank, world_size, args):
         params.dtype = torch.float32
         params.use_autocast = False
 
-    logging.info(f"Using dtype={params.dtype}")
+    logging.info(f"Using dtype={str(params.dtype)}")
     logging.info(f"Use AMP={params.use_autocast}")
 
     logging.info(params)
@@ -1400,21 +1422,9 @@ def run(rank, world_size, args):
     if params.inf_check:
         register_inf_check_hooks(model)
 
-    librispeech = LibriSpeechAsrDataModule(args)
-
-    if params.full_libri:
-        train_cuts = librispeech.train_all_shuf_cuts()
-
-        # previously we used the following code to load all training cuts,
-        # strictly speaking, shuffled training cuts should be used instead,
-        # but we leave the code here to demonstrate that there is an option
-        # like this to combine multiple cutsets
-
-        # train_cuts = librispeech.train_clean_100_cuts()
-        # train_cuts += librispeech.train_clean_360_cuts()
-        # train_cuts += librispeech.train_other_500_cuts()
-    else:
-        train_cuts = librispeech.train_clean_100_cuts()
+    ximalaya = XimalayaAsrDataModule(args)
+    train_cuts = ximalaya.train_cuts()
+    valid_cuts = ximalaya.test_cuts().subset(first=2000)
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
@@ -1441,6 +1451,7 @@ def run(rank, world_size, args):
         tokens = sp.encode(c.supervisions[0].text, out_type=str)
 
         if T < len(tokens):
+            return False
             logging.warning(
                 f"Exclude cut with ID {c.id} from training. "
                 f"Number of frames (before subsampling): {c.num_frames}. "
@@ -1453,7 +1464,18 @@ def run(rank, world_size, args):
 
         return True
 
+    def tokenize_and_encode_text(c: Cut):
+        # Text normalize for each sample
+        text = c.supervisions[0].text
+        text = byte_encode(tokenize_by_CJK_char(text))
+        c.supervisions[0].text = text
+        return c
+
+    train_cuts = train_cuts.map(tokenize_and_encode_text)
+    valid_cuts = valid_cuts.map(tokenize_and_encode_text)
+
     train_cuts = train_cuts.filter(remove_short_and_long_utt)
+    valid_cuts = valid_cuts.filter(remove_short_and_long_utt)
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
         # We only load the sampler's state dict when it loads a checkpoint
@@ -1462,15 +1484,13 @@ def run(rank, world_size, args):
     else:
         sampler_state_dict = None
 
-    train_dl = librispeech.train_dataloaders(
+    train_dl = ximalaya.train_dataloaders(
         train_cuts, sampler_state_dict=sampler_state_dict
     )
 
-    valid_cuts = librispeech.dev_clean_cuts()
-    valid_cuts += librispeech.dev_other_cuts()
-    valid_dl = librispeech.valid_dataloaders(valid_cuts)
+    valid_dl = ximalaya.valid_dataloaders(valid_cuts)
 
-    if not params.print_diagnostics and False:
+    if False and not params.print_diagnostics:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
@@ -1479,6 +1499,7 @@ def run(rank, world_size, args):
             params=params,
             spec_augment=spec_augment,
         )
+    logging.warning("Started")
 
     scaler = GradScaler(enabled=params.use_autocast, init_scale=1.0)
     if checkpoints and "grad_scaler" in checkpoints:
@@ -1613,7 +1634,7 @@ def scan_pessimistic_batches_for_oom(
 
 def main():
     parser = get_parser()
-    LibriSpeechAsrDataModule.add_arguments(parser)
+    XimalayaAsrDataModule.add_arguments(parser)
     args = parser.parse_args()
     args.exp_dir = Path(args.exp_dir)
 
@@ -1625,8 +1646,7 @@ def main():
         run(rank=0, world_size=1, args=args)
 
 
-torch.set_num_threads(1)
-torch.set_num_interop_threads(1)
-
 if __name__ == "__main__":
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
     main()
