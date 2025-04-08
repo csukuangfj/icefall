@@ -87,6 +87,9 @@ def compile_HLG(lang_dir: str) -> k2.Fsa:
     assert isinstance(LG.aux_labels, k2.RaggedTensor)
     LG.aux_labels.values[LG.aux_labels.values >= first_word_disambig_id] = 0
 
+    import pdb
+
+    pdb.set_trace()
     LG = k2.remove_epsilon(LG)
     logging.info(f"LG shape after k2.remove_epsilon: {LG.shape}")
 
