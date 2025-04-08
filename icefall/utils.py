@@ -186,7 +186,11 @@ class AttributeDict(dict):
         tmp = {}
         for k, v in self.items():
             # PosixPath is ont JSON serializable
-            if isinstance(v, pathlib.Path) or isinstance(v, torch.device):
+            if (
+                isinstance(v, pathlib.Path)
+                or isinstance(v, torch.device)
+                or isinstance(v, torch.dtype)
+            ):
                 v = str(v)
             tmp[k] = v
         return json.dumps(tmp, indent=indent, sort_keys=True)
@@ -1756,6 +1760,30 @@ def tokenize_by_CJK_char(line: str) -> str:
     )
     chars = pattern.split(line.strip().upper())
     return " ".join([w.strip() for w in chars if w.strip()])
+
+
+def tokenize_by_ja_char(line: str) -> str:
+    """
+    Tokenize a line of text with Japanese characters.
+
+    Note: All non-Japanese characters will be upper case.
+
+    Example:
+      input = "こんにちは世界は hello world の日本語"
+      output = "こ ん に ち は 世 界 は HELLO WORLD の 日 本 語"
+
+    Args:
+      line:
+        The input text.
+
+    Return:
+      A new string tokenized by Japanese characters.
+    """
+    pattern = re.compile(r"([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF])")
+    chars = pattern.split(line.strip())
+    return " ".join(
+        [w.strip().upper() if not pattern.match(w) else w for w in chars if w.strip()]
+    )
 
 
 def display_and_save_batch(
