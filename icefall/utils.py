@@ -51,6 +51,14 @@ from icefall.checkpoint import average_checkpoints
 Pathlike = Union[str, Path]
 
 
+def torch_compile(m, **kwargs):
+    if hasattr(torch, "compile"):
+        # torch.compile() requires torch >= 2.0
+        return torch.compile(m, **kwargs)
+    else:
+        return m
+
+
 # Pytorch issue: https://github.com/pytorch/pytorch/issues/47379
 # Fixed: https://github.com/pytorch/pytorch/pull/49853
 # The fix was included in v1.9.0

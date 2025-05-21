@@ -1402,6 +1402,11 @@ class SwooshL(torch.nn.Module):
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
             return logaddexp(zero, x - 4.0) - 0.08 * x - 0.035
+        elif hasattr(torch, "compile"):
+            # Please use torch.compile() if it is available
+            zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
+            return torch.logaddexp(zero, x - 4.0) - 0.08 * x - 0.035
+
         if not x.requires_grad:
             return k2.swoosh_l_forward(x).to(x.dtype)
         else:
@@ -1476,6 +1481,10 @@ class SwooshR(torch.nn.Module):
         if torch.jit.is_scripting() or torch.jit.is_tracing():
             zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
             return logaddexp(zero, x - 1.0) - 0.08 * x - 0.313261687
+        elif hasattr(torch, "compile"):
+            zero = torch.tensor(0.0, dtype=x.dtype, device=x.device)
+            return torch.logaddexp(zero, x - 1.0) - 0.08 * x - 0.313261687
+
         if not x.requires_grad:
             return k2.swoosh_r_forward(x).to(x.dtype)
         else:
@@ -1535,10 +1544,17 @@ class ActivationDropoutAndLinearFunction(torch.autograd.Function):
 
         ctx.activation = activation
 
-        forward_activation_dict = {
-            "SwooshL": k2.swoosh_l_forward,
-            "SwooshR": k2.swoosh_r_forward,
-        }
+        forward_activation_dict = (
+            {
+                "SwooshL": k2.swoosh_l_forward,
+                "SwooshR": k2.swoosh_r_forward,
+            }
+            if not hasattr(torch, "compile")
+            else {
+                "SwooshL": SwooshLForward,
+                "SwooshR": SwooshRForward,
+            }
+        )
         # it will raise a KeyError if this fails.  This will be an error.  We let it
         # propagate to the user.
         activation_func = forward_activation_dict[activation]

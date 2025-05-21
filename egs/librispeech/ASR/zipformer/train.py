@@ -101,6 +101,7 @@ from icefall.utils import (
     get_parameter_groups_with_lrs,
     setup_logger,
     str2bool,
+    torch_compile,
 )
 
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
@@ -547,6 +548,13 @@ def get_parser():
         type=str2bool,
         default=False,
         help="Whether to use bf16 in AMP.",
+    )
+
+    parser.add_argument(
+        "--enable-torch-compile",
+        type=str2bool,
+        default=True,
+        help="If true and if torch>=2.0, use torch.compile()",
     )
 
     add_model_arguments(parser)
@@ -1336,6 +1344,10 @@ def run(rank, world_size, args):
     )
 
     model.to(device)
+
+    if params.enable_torch_compile:
+        model = torch_compile(model)
+
     if world_size > 1:
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
