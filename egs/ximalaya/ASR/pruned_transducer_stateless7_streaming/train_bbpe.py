@@ -57,7 +57,7 @@ import sentencepiece as spm
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
-from asr_datamodule import LibriSpeechAsrDataModule
+from asr_datamodule import XimalayaAsrDataModule
 from decoder import Decoder
 from joiner import Joiner
 from lhotse.cut import Cut
@@ -71,7 +71,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from zipformer import Zipformer
 
-from icefall import diagnostics
+from icefall import byte_encode, diagnostics
 from icefall.checkpoint import load_checkpoint, remove_checkpoints
 from icefall.checkpoint import save_checkpoint as save_checkpoint_impl
 from icefall.checkpoint import (
@@ -82,7 +82,13 @@ from icefall.dist import cleanup_dist, setup_dist
 from icefall.env import get_env_info
 from icefall.err import raise_grad_scale_is_too_small_error
 from icefall.hooks import register_inf_check_hooks
-from icefall.utils import AttributeDict, MetricsTracker, setup_logger, str2bool
+from icefall.utils import (
+    AttributeDict,
+    MetricsTracker,
+    setup_logger,
+    str2bool,
+    tokenize_by_CJK_char,
+)
 
 LRSchedulerType = Union[torch.optim.lr_scheduler._LRScheduler, optim.LRScheduler]
 
@@ -450,7 +456,7 @@ def get_params() -> AttributeDict:
             "batch_idx_train": 0,
             "log_interval": 50,
             "reset_interval": 200,
-            "valid_interval": 3000,  # For the 100h subset, use 800
+            "valid_interval": 5000,  # For the 100h subset, use 800
             # parameters for zipformer
             "feature_dim": 80,
             "subsampling_factor": 4,  # not passed in, this is fixed.
@@ -950,8 +956,6 @@ def run(rank, world_size, args):
     """
     params = get_params()
     params.update(vars(args))
-    if params.full_libri is False:
-        params.valid_interval = 1600
 
     fix_random_seed(params.seed)
     if world_size > 1:
@@ -1035,28 +1039,9 @@ def run(rank, world_size, args):
     if params.inf_check:
         register_inf_check_hooks(model)
 
-    librispeech = LibriSpeechAsrDataModule(args)
-
-    assert not (
-        params.mini_libri and params.full_libri
-    ), f"Cannot set both mini-libri and full-libri flags to True, now mini-libri {params.mini_libri} and full-libri {params.full_libri}"
-
-    if params.mini_libri:
-        train_cuts = librispeech.train_clean_5_cuts()
-    else:
-        if params.full_libri:
-            train_cuts = librispeech.train_all_shuf_cuts()
-
-            # previously we used the following code to load all training cuts,
-            # strictly speaking, shuffled training cuts should be used instead,
-            # but we leave the code here to demonstrate that there is an option
-            # like this to combine multiple cutsets
-
-            # train_cuts = librispeech.train_clean_100_cuts()
-            # train_cuts += librispeech.train_clean_360_cuts()
-            # train_cuts += librispeech.train_other_500_cuts()
-        else:
-            train_cuts = librispeech.train_clean_100_cuts()
+    ximalaya = XimalayaAsrDataModule(args)
+    train_cuts = ximalaya.train_cuts()
+    valid_cuts = ximalaya.test_cuts().subset(first=2000)
 
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 1 second and 20 seconds
@@ -1068,6 +1053,7 @@ def run(rank, world_size, args):
         # an utterance duration distribution for your dataset to select
         # the threshold
         if c.duration < 1.0 or c.duration > 20.0:
+            return False
             logging.warning(
                 f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             )
@@ -1083,6 +1069,7 @@ def run(rank, world_size, args):
         tokens = sp.encode(c.supervisions[0].text, out_type=str)
 
         if T < len(tokens):
+            return False
             logging.warning(
                 f"Exclude cut with ID {c.id} from training. "
                 f"Number of frames (before subsampling): {c.num_frames}. "
@@ -1095,6 +1082,19 @@ def run(rank, world_size, args):
 
         return True
 
+    def tokenize_and_encode_text(c: Cut):
+        # Text normalize for each sample
+        text = c.supervisions[0].text
+        text = byte_encode(tokenize_by_CJK_char(text))
+        c.supervisions[0].text = text
+        return c
+
+    train_cuts = train_cuts.map(tokenize_and_encode_text)
+    valid_cuts = valid_cuts.map(tokenize_and_encode_text)
+
+    train_cuts = train_cuts.filter(remove_short_and_long_utt)
+    valid_cuts = valid_cuts.filter(remove_short_and_long_utt)
+
     # train_cuts = train_cuts.filter(remove_short_and_long_utt)
 
     if params.start_batch > 0 and checkpoints and "sampler" in checkpoints:
@@ -1104,16 +1104,11 @@ def run(rank, world_size, args):
     else:
         sampler_state_dict = None
 
-    train_dl = librispeech.train_dataloaders(
+    train_dl = ximalaya.train_dataloaders(
         train_cuts, sampler_state_dict=sampler_state_dict
     )
 
-    if params.mini_libri:
-        valid_cuts = librispeech.dev_clean_2_cuts()
-    else:
-        valid_cuts = librispeech.dev_clean_cuts()
-        valid_cuts += librispeech.dev_other_cuts()
-    valid_dl = librispeech.valid_dataloaders(valid_cuts)
+    valid_dl = ximalaya.valid_dataloaders(valid_cuts)
 
     # if not params.print_diagnostics:
     #     scan_pessimistic_batches_for_oom(
@@ -1123,6 +1118,7 @@ def run(rank, world_size, args):
     #         sp=sp,
     #         params=params,
     #     )
+    logging.warning("Started")
 
     scaler = GradScaler(enabled=params.use_fp16, init_scale=1.0)
     if checkpoints and "grad_scaler" in checkpoints:
@@ -1252,7 +1248,7 @@ def scan_pessimistic_batches_for_oom(
 
 def main():
     parser = get_parser()
-    LibriSpeechAsrDataModule.add_arguments(parser)
+    XimalayaAsrDataModule.add_arguments(parser)
     args = parser.parse_args()
     args.exp_dir = Path(args.exp_dir)
 
