@@ -26,8 +26,12 @@ def process_file(filename):
 # ./cutset-all.txt 82.3k (1162 files)
 
 # ./cutset-all-wenetspeech.txt, 30.217k (1001 files)
+# ./cutset-all-wenetspeech4tts.txt, 7.2k (394 files)
 # ./cutset-all-2-ximalaya-wenetspeech.txt,
 # ./cutset-all-aishell.txt, 455 hours (100 files)
+# ./cutset-all-aishell2.txt, 1000 hours (100 files)
+# ./cutset-all-kespeech.txt, 1396 hours (200 files)
+# ./cutset-all-zhvoice.txt,  888.4 hours (100 files)
 
 
 def main():
@@ -37,7 +41,11 @@ def main():
     #  with open("./cutset-all.txt") as f:
     #  with open("./cutset-all-wenetspeech.txt") as f:
     #  with open("./cutset-all-2-ximalaya-wenetspeech.txt") as f:
-    with open("./cutset-all-aishell.txt") as f:
+    #  with open("./cutset-all-aishell.txt") as f:
+    #  with open("./cutset-all-aishell2.txt") as f:
+    #  with open("./cutset-all-wenetspeech4tts.txt") as f:
+    #  with open("./cutset-all-kespeech.txt") as f:
+    with open("./cutset-all-zhvoice.txt") as f:
         for line in f:
             line = line.strip()
             filenames.append(line)

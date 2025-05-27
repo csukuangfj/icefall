@@ -1,0 +1,5 @@
+{"id": "BAC009S0002W0122-0", "start": 0, "duration": 5.999, "channel": 0, "supervisions": [{"id": "BAC009S0002W0122", "recording_id": "BAC009S0002W0122", "start": 0.0, "duration": 5.999, "channel": 0, "text": "而 对 楼市 成交 抑制 作用 最 大 的 限 购", "language": "Chinese", "speaker": "S0002"}], "features": {"type": "kaldi-fbank", "num_frames": 600, "num_features": 80, "frame_shift": 0.01, "sampling_rate": 16000, "start": 0, "duration": 5.999, "storage_type": "lilcom_chunky", "storage_path": "data/fbank/aishell_feats_train/feats-0.lca", "storage_key": "0,48592,9920", "channels": 0}, "recording": {"id": "BAC009S0002W0122", "sources": [{"type": "file", "channels": [0], "source": "/star-home/jinzengrui/exp/adam/egs/aishell/ASR/download/aishell/data_aishell/wav/train/S0002/BAC009S0002W0122.wav"}], "sampling_rate": 16000, "num_samples": 95984, "duration": 5.999, "channel_ids": [0]}, "type": "MonoCut"}
+
+text = ''.join(text.split())
+
+cat /star-oss/kangwei/icefall/egs/aishell/ASR/data/fbank/aishell_cuts_train.jsonl.gz | gunzip -c | less

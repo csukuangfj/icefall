@@ -77,6 +77,48 @@ def test_generate_filenames_aishell():
 
     print(f"{elapsed_seconds} seconds")
 
+def test_generate_filenames_zhvoice():
+    cut_set_filenames = glob.glob(
+        "/star-oss/fangjun/data/zhvoice/my-split-100/*.jsonl.gz"
+    )
+
+    random.shuffle(cut_set_filenames)
+
+    with open(f"cutset-all-zhvoice.txt", "w") as f:
+        for n in cut_set_filenames:
+            f.write(f"{n}\n")
+
+    print(f"{len(cut_set_filenames)}")
+
+    start = time.time()
+    cuts_train = lhotse.combine(lhotse.load_manifest_lazy(p) for p in cut_set_filenames)
+    end = time.time()
+
+    elapsed_seconds = end - start
+
+    print(f"{elapsed_seconds} seconds")
+
+def test_generate_filenames_aishell2():
+    cut_set_filenames = glob.glob(
+        "/star-oss/fangjun/data/aishell2/my-split-100/*.jsonl.gz"
+    )
+
+    random.shuffle(cut_set_filenames)
+
+    with open(f"cutset-all-aishell2.txt", "w") as f:
+        for n in cut_set_filenames:
+            f.write(f"{n}\n")
+
+    print(f"{len(cut_set_filenames)}")
+
+    start = time.time()
+    cuts_train = lhotse.combine(lhotse.load_manifest_lazy(p) for p in cut_set_filenames)
+    end = time.time()
+
+    elapsed_seconds = end - start
+
+    print(f"{elapsed_seconds} seconds")
+
 
 def test_generate_filenames_wenetspeech():
     cut_set_filenames = glob.glob(
@@ -85,6 +127,47 @@ def test_generate_filenames_wenetspeech():
 
     random.shuffle(cut_set_filenames)
     with open(f"cutset-all-wenetspeech.txt", "w") as f:
+        for n in cut_set_filenames:
+            f.write(f"{n}\n")
+
+    print(f"{len(cut_set_filenames)}")
+
+    start = time.time()
+    cuts_train = lhotse.combine(lhotse.load_manifest_lazy(p) for p in cut_set_filenames)
+    end = time.time()
+
+    elapsed_seconds = end - start
+
+    print(f"{elapsed_seconds} seconds")
+
+def test_generate_filenames_kespeech():
+    cut_set_filenames = glob.glob(
+        "/star-oss/fangjun/data/kespeech/my-split-100/*.jsonl.gz"
+    )
+
+    random.shuffle(cut_set_filenames)
+    with open(f"cutset-all-kespeech.txt", "w") as f:
+        for n in cut_set_filenames:
+            f.write(f"{n}\n")
+
+    print(f"{len(cut_set_filenames)}")
+
+    start = time.time()
+    cuts_train = lhotse.combine(lhotse.load_manifest_lazy(p) for p in cut_set_filenames)
+    end = time.time()
+
+    elapsed_seconds = end - start
+
+    print(f"{elapsed_seconds} seconds")
+
+
+def test_generate_filenames_wenetspeech4tts():
+    cut_set_filenames = glob.glob(
+        "/star-data/kangwei/icefall/egs/wenetspeech4tts/ASR/data/fbank/splits/wenetspeech4tts_cuts_Basic.*.jsonl.gz"
+    )
+
+    random.shuffle(cut_set_filenames)
+    with open(f"cutset-all-wenetspeech4tts.txt", "w") as f:
         for n in cut_set_filenames:
             f.write(f"{n}\n")
 
@@ -122,7 +205,11 @@ def generate_ximalaya_wenetspeech_aishell_combined():
 def main():
     print("started")
     #  generate_ximalaya_wenetspeech_aishell_combined()
-    test_generate_filenames_aishell()
+    test_generate_filenames_zhvoice()
+    #  test_generate_filenames_aishell2()
+    #  test_generate_filenames_aishell()
+    #  test_generate_filenames_kespeech()
+    #  test_generate_filenames_wenetspeech4tts()
     #  test_generate_filenames_wenetspeech()
     #  test_generate_filenames(wer="0.3")
     #  test_train()
