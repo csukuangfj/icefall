@@ -27,7 +27,7 @@ def process_file(filename):
 
 # ./cutset-all-wenetspeech.txt, 30.217k (1001 files)
 # ./cutset-all-2-ximalaya-wenetspeech.txt,
-# ./cutset-all-aishell.txt, 455 hours (1 file)
+# ./cutset-all-aishell.txt, 455 hours (100 files)
 
 
 def main():

@@ -57,9 +57,11 @@ def test_test():
 
 
 def test_generate_filenames_aishell():
-    cut_set_filenames = [
-        "/star-oss/kangwei/icefall/egs/aishell/ASR/data/fbank/aishell_cuts_train.jsonl.gz"
-    ]
+    cut_set_filenames = glob.glob(
+        "/star-oss/fangjun/data/aishell/my-split-100/*.jsonl.gz"
+    )
+
+    random.shuffle(cut_set_filenames)
 
     with open(f"cutset-all-aishell.txt", "w") as f:
         for n in cut_set_filenames:
@@ -119,8 +121,8 @@ def generate_ximalaya_wenetspeech_aishell_combined():
 
 def main():
     print("started")
-    generate_ximalaya_wenetspeech_aishell_combined()
-    #  test_generate_filenames_aishell()
+    #  generate_ximalaya_wenetspeech_aishell_combined()
+    test_generate_filenames_aishell()
     #  test_generate_filenames_wenetspeech()
     #  test_generate_filenames(wer="0.3")
     #  test_train()
