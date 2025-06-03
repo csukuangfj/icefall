@@ -603,9 +603,9 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 20,
+            "log_interval": 50,
             "reset_interval": 200,
-            "valid_interval": 2000,  # For the 100h subset, use 800
+            "valid_interval": 10000,  # For the 100h subset, use 800
             # parameters for zipformer
             "feature_dim": 80,
             "subsampling_factor": 4,  # not passed in, this is fixed.
@@ -1286,14 +1286,14 @@ def run(rank, world_size, args):
     params.sos_id = params.eos_id = sp.piece_to_id("<sos/eos>")
     params.vocab_size = sp.get_piece_size()
 
-    if not params.use_transducer:
-        if not params.use_attention_decoder:
-            params.ctc_loss_scale = 1.0
-        else:
-            assert params.ctc_loss_scale + params.attention_decoder_loss_scale == 1.0, (
-                params.ctc_loss_scale,
-                params.attention_decoder_loss_scale,
-            )
+    #  if not params.use_transducer:
+    #      if not params.use_attention_decoder:
+    #          params.ctc_loss_scale = 1.0
+    #      else:
+    #          assert params.ctc_loss_scale + params.attention_decoder_loss_scale == 1.0, (
+    #              params.ctc_loss_scale,
+    #              params.attention_decoder_loss_scale,
+    #          )
 
     if params.use_bf16:  # amp + bf16
         assert torch.cuda.is_bf16_supported(), "Your GPU does not support bf16!"

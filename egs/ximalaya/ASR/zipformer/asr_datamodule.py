@@ -385,7 +385,8 @@ class XimalayaAsrDataModule:
     def train_cuts(self) -> CutSet:
         logging.info("About to get train cuts")
         files = []
-        with open("./cutset-all-0.3.txt") as f:
+        #  with open("./cutset-all-0.3.txt") as f:
+        with open("./cutset-all-7-combined.txt") as f:
             #  with open("./cutset-random-first-400.txt") as f:
             for line in f:
                 line = line.strip()
