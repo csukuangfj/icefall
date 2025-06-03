@@ -77,6 +77,7 @@ def test_generate_filenames_aishell():
 
     print(f"{elapsed_seconds} seconds")
 
+
 def test_generate_filenames_zhvoice():
     cut_set_filenames = glob.glob(
         "/star-oss/fangjun/data/zhvoice/my-split-100/*.jsonl.gz"
@@ -97,6 +98,7 @@ def test_generate_filenames_zhvoice():
     elapsed_seconds = end - start
 
     print(f"{elapsed_seconds} seconds")
+
 
 def test_generate_filenames_aishell2():
     cut_set_filenames = glob.glob(
@@ -139,6 +141,7 @@ def test_generate_filenames_wenetspeech():
     elapsed_seconds = end - start
 
     print(f"{elapsed_seconds} seconds")
+
 
 def test_generate_filenames_kespeech():
     cut_set_filenames = glob.glob(
@@ -188,24 +191,59 @@ def get_dataset(filename):
             yield line.strip()
 
 
-def generate_ximalaya_wenetspeech_aishell_combined():
+def generate_combined():
     ximalaya = list(get_dataset("./cutset-all-0.3.txt"))
-    wenetspeech = list(get_dataset("./cutset-all-wenetspeech.txt"))
-    aishell = list(get_dataset("./cutset-all-aishell.txt"))
+    aishell = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/aishell/cutset-all-aishell-normalized.txt"
+        )
+    )
+    aishell2 = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/aishell2/cutset-all-aishell2-normalized.txt"
+        )
+    )
+    kespeech = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/kespeech/cutset-all-kespeech-normalized.txt"
+        )
+    )
+    wenetspeech = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/wenetspeech/cutset-all-wenetspeech-normalized.txt"
+        )
+    )
+    wenetspeech4tts = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/wenetspeech4tts/cutset-all-wenetspeech4tts-normalized.txt"
+        )
+    )
+    zhvoice = list(
+        get_dataset(
+            "/star-oss/fangjun/data/normalized/zhvoice/cutset-all-zhvoice-normalized.txt"
+        )
+    )
 
-    all_data = ximalaya + wenetspeech + aishell
+    all_data = (
+        ximalaya
+        + aishell
+        + aishell2
+        + kespeech
+        + wenetspeech
+        + wenetspeech4tts
+        + zhvoice
+    )
     random.shuffle(all_data)
 
-    with open("cutset-all-3-ximalaya-wenetspeech-aishell.txt", "w") as f:
+    with open("cutset-all-7-combined.txt", "w") as f:
         for n in all_data:
             f.write(f"{n}\n")
 
 
-
 def main():
     print("started")
-    #  generate_ximalaya_wenetspeech_aishell_combined()
-    test_generate_filenames_zhvoice()
+    generate_combined()
+    #  test_generate_filenames_zhvoice()
     #  test_generate_filenames_aishell2()
     #  test_generate_filenames_aishell()
     #  test_generate_filenames_kespeech()

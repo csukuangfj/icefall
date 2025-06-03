@@ -12,8 +12,11 @@ from tqdm import tqdm
 
 
 def process_file(filename):
-    logging.info(f"Processing {filename}")
+    #  logging.info(f"Processing {filename}")
     cut_set = CutSet.from_file(filename)
+    for c in cut_set:
+        feature = c.load_features()
+        break
 
     stats = CutSetStatistics(full=True)
     total_seconds = np.array(stats.accumulate(cut_set).cut_durations).sum().item()
@@ -31,6 +34,7 @@ def process_file(filename):
 # ./cutset-all-aishell2.txt, 1000 hours (100 files)
 # ./cutset-all-kespeech.txt, 1396 hours (200 files)
 # ./cutset-all-zhvoice.txt,  888.4 hours (100 files)
+# ./cutset-all-7-combined.txt 415.797k hours (5585 files)
 
 
 def main():
@@ -44,7 +48,8 @@ def main():
     #  with open("./cutset-all-aishell2.txt") as f:
     #  with open("./cutset-all-wenetspeech4tts.txt") as f:
     #  with open("./cutset-all-kespeech.txt") as f:
-    with open("./cutset-all-zhvoice.txt") as f:
+    #  with open("./cutset-all-zhvoice.txt") as f:
+    with open("./cutset-all-7-combined.txt") as f:
         for line in f:
             line = line.strip()
             filenames.append(line)
@@ -54,19 +59,26 @@ def main():
 
     num_jobs = 20
     ans = []
-    with ProcessPoolExecutor(num_jobs) as ex:
-        futures = []
-        for i, f in enumerate(filenames):
-            futures.append(ex.submit(process_file, f))
+    if num_jobs > 1:
+        with ProcessPoolExecutor(num_jobs) as ex:
+            futures = []
+            for f in filenames:
+                futures.append(ex.submit(process_file, f))
 
-        for future in tqdm(
-            as_completed(futures),
-            total=len(futures),
-            desc=f"Processing {Path(f).stem}",
-            leave=False,
-        ):
-            total_seconds = future.result()
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"Processing",
+                leave=False,
+            ):
+                total_seconds = future.result()
+                ans.append(total_seconds)
+    else:
+        for f in tqdm(filenames):
+            print("processing", f)
+            total_seconds = process_file(f)
             ans.append(total_seconds)
+
     total_hours = sum(ans) / 3600.0
     logging.info(f"Total hours: {total_hours:.4f}")  # 82309.5509 hours
 
