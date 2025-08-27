@@ -63,9 +63,9 @@ def get_torchaudio_version(torch_version):
 
 
 def get_matrix(min_torch_version, specified_torch_version, specified_python_version):
-    k2_version = "1.24.4.dev20250630"
+    k2_version = "1.24.4.dev20250714"
     kaldifeat_version = "1.25.5.dev20250630"
-    version = "20250630"
+    version = "20250827"
 
     # torchaudio 2.5.0 does not support python 3.13
     python_version = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
@@ -81,6 +81,7 @@ def get_matrix(min_torch_version, specified_torch_version, specified_python_vers
     torch_version += ["2.5.0"]
     torch_version += ["2.5.1"]
     torch_version += ["2.6.0", "2.7.0", "2.7.1"]
+    torch_version += ["2.8.0"]
 
     if specified_torch_version:
         torch_version = [specified_torch_version]
@@ -112,6 +113,9 @@ def get_matrix(min_torch_version, specified_torch_version, specified_python_vers
 
             k2_version_2 = k2_version
             kaldifeat_version_2 = kaldifeat_version
+            if t == "2.8.0":
+                k2_version_2 = "1.24.4.dev20250807"
+                kaldifeat_version_2 = "1.25.5.dev20250807"
 
             matrix.append(
                 {
