@@ -31,7 +31,7 @@ import logging
 
 import onnxruntime as ort
 import torch
-import torchaudio
+import soundfile as sf
 from tokenizer import Tokenizer
 
 
@@ -134,7 +134,7 @@ def main():
     audio = model(tokens, tokens_lens)  # (1, T')
 
     output_filename = args.output_filename
-    torchaudio.save(output_filename, audio, sample_rate=model.sample_rate)
+    sf.write(output_filename, audio.squeeze(0).cpu().numpy(), model.sample_rate)
     logging.info(f"Saved to {output_filename}")
 
 

@@ -201,7 +201,7 @@ def main():
             encoded_frames = tokenize_audio(audio_tokenizer, audio_file)
             if False:
                 samples = audio_tokenizer.decode(encoded_frames)
-                torchaudio.save(f"{args.output_dir}/p{n}.wav", samples[0], 24000)
+                sf.write(f"{args.output_dir}/p{n}.wav", samples[0].squeeze(0).cpu().numpy(), 24000)
 
             audio_prompts.append(encoded_frames[0][0])
 
@@ -252,7 +252,7 @@ def main():
                 audio_path = f"{args.output_dir}/{audio_path}"
                 # mkdir -p
                 os.makedirs(os.path.dirname(audio_path), exist_ok=True)
-                torchaudio.save(audio_path, samples[0].cpu(), 24000)
+                sf.write(audio_path, samples[0].cpu().squeeze(0).numpy(), 24000)
         return
 
     for n, text in enumerate(args.text.split("|")):
@@ -281,7 +281,7 @@ def main():
         if audio_prompts != []:
             samples = audio_tokenizer.decode([(encoded_frames.transpose(2, 1), None)])
             # store
-            torchaudio.save(f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000)
+            sf.write(f"{args.output_dir}/{n}.wav", samples[0].cpu().squeeze(0).numpy(), 24000)
         else:  # Transformer
             pass
 

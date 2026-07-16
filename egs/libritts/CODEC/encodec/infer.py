@@ -35,7 +35,7 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
-import torchaudio
+import soundfile as sf
 from codec_datamodule import LibriTTSCodecDataModule
 from pesq import pesq
 from pystoi import stoi
@@ -155,16 +155,8 @@ def infer_dataset(
         audio_lens: List[int],
     ):
         for i in range(batch_size):
-            torchaudio.save(
-                str(params.save_wav_dir / subset / f"{cut_ids[i]}_gt.wav"),
-                audio[i : i + 1, : audio_lens[i]],
-                sample_rate=params.sampling_rate,
-            )
-            torchaudio.save(
-                str(params.save_wav_dir / subset / f"{cut_ids[i]}_recon.wav"),
-                audio_pred[i : i + 1, : audio_lens[i]],
-                sample_rate=params.sampling_rate,
-            )
+            sf.write(str(params.save_wav_dir / subset / f"{cut_ids[i]}_gt.wav"), audio[i : i + 1, : audio_lens[i]].squeeze(0).cpu().numpy(), params.sampling_rate)
+            sf.write(str(params.save_wav_dir / subset / f"{cut_ids[i]}_recon.wav"), audio_pred[i : i + 1, : audio_lens[i]].squeeze(0).cpu().numpy(), params.sampling_rate)
 
     device = next(model.parameters()).device
     num_cuts = 0

@@ -33,6 +33,7 @@ from pathlib import Path
 
 import onnxruntime as ort
 import torch
+import soundfile as sf
 import torchaudio
 from tokenizer import Tokenizer
 
@@ -131,7 +132,7 @@ def main():
     speaker = torch.tensor([1], dtype=torch.int64)  # (1, )
     audio = model(tokens, tokens_lens, speaker)  # (1, T')
 
-    torchaudio.save(str("test_onnx.wav"), audio, sample_rate=22050)
+    sf.write(str("test_onnx.wav"), audio.squeeze(0).cpu().numpy(), 22050)
     logging.info("Saved to test_onnx.wav")
 
 

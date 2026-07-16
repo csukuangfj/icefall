@@ -36,8 +36,8 @@ from typing import List
 import k2
 import numpy as np
 import torch
+import soundfile as sf
 import torch.nn as nn
-import torchaudio
 from lhotse.features.io import KaldiReader
 from tokenizer import Tokenizer
 from train import get_model, get_params
@@ -111,16 +111,8 @@ def infer_dataset(
         audio_lens_pred: List[int],
     ):
         for i in range(batch_size):
-            torchaudio.save(
-                str(params.save_wav_dir / subset / f"{cut_ids[i]}_gt.wav"),
-                audio[i : i + 1, : audio_lens[i]],
-                sample_rate=params.sampling_rate,
-            )
-            torchaudio.save(
-                str(params.save_wav_dir / subset / f"{cut_ids[i]}_pred.wav"),
-                audio_pred[i : i + 1, : audio_lens_pred[i]],
-                sample_rate=params.sampling_rate,
-            )
+            sf.write(str(params.save_wav_dir / subset / f"{cut_ids[i]}_gt.wav"), audio[i : i + 1, : audio_lens[i]].squeeze(0).cpu().numpy(), params.sampling_rate)
+            sf.write(str(params.save_wav_dir / subset / f"{cut_ids[i]}_pred.wav"), audio_pred[i : i + 1, : audio_lens_pred[i]].squeeze(0).cpu().numpy(), params.sampling_rate)
 
     device = next(model.parameters()).device
     num_cuts = 0

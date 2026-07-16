@@ -835,11 +835,7 @@ def main():
                     target_sample_rate = 24_000
                     if ref_rms_list[i] < target_rms:
                         generated_wave = generated_wave * ref_rms_list[i] / target_rms
-                    torchaudio.save(
-                        f"{args.output_dir}/{utts[i]}.wav",
-                        generated_wave,
-                        target_sample_rate,
-                    )
+                    sf.write(f"{args.output_dir}/{utts[i]}.wav", generated_wave.squeeze(0).cpu().numpy(), target_sample_rate)
 
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
